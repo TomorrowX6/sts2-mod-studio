@@ -155,7 +155,14 @@ pub fn deploy(project_dir: &Path, cfg: &ToolConfig, log: LogFn) -> Result<()> {
     build(project_dir, cfg, log)?;
     pack(project_dir, cfg, log)?;
     if cfg.sts2_dir.is_some() {
-        log("部署完成，启动游戏即可测试（战斗中控制台 ~ 输入 card <ID> 获取卡牌）");
+        log("部署完成，启动游戏即可测试。注意 card 指令只能在战斗中使用：");
+        let project = Project::load(project_dir)?;
+        for card in &project.cards {
+            log(&format!(
+                "  战斗中按 ~ 输入: card {}",
+                crate::ids::content_id(&project.manifest.id, "CARD", &card.class_name)
+            ));
+        }
     } else {
         log("未配置游戏目录，产物在 build/ 下，请手动复制到游戏 mods 文件夹");
     }
