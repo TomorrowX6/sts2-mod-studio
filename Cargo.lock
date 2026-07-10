@@ -2995,6 +2995,7 @@ dependencies = [
 name = "sts2mod-studio"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "serde",
  "serde_json",
  "sts2mod-core",
