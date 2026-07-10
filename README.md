@@ -80,7 +80,27 @@ MyMod/
 }
 ```
 
-效果积木目前支持 `damage`（仅卡牌）/ `draw` / `applyPower` / `custom`（原样插入 C#）。
+效果积木一览（不同宿主可用性不同，非法组合在生成时报错）：
+
+| 积木 | 说明 | 生成的指令（均经教程/反编译验证） |
+|------|------|------|
+| `damage` | 攻击伤害（吃力量、有动画），仅限有敌人目标的卡牌 | `DamageCmd.Attack(...).FromCard(this)...` |
+| `directDamage` | 直接伤害/失去生命（默认不可格挡不吃力量），`toSelf` 可对自己 | `CreatureCmd.Damage(...)` |
+| `block` | 获得格挡（吃敏捷） | `CreatureCmd.GainBlock(...)` |
+| `heal` | 治疗自己 | `CreatureCmd.Heal(...)` |
+| `draw` | 抽牌（能力上下文不可用） | `CardPileCmd.Draw(...)` |
+| `applyPower` | 给予能力，`toSelf` 或给目标；能力宿主默认层数 `Amount` | `PowerCmd.Apply<X>(...)` |
+| `gainGold` | 获得金币（能力上下文不可用） | `PlayerCmd.GainGold(...)` |
+| `playSfx` | 播放音效，如 `event:/sfx/block_gain` | `SfxCmd.Play(...)` |
+| `playVfx` | 播放特效，如 `vfx/vfx_bloody_impact` | `VfxCmd.PlayOnCreature(...)` |
+| `if` | 条件分支：`when`（C# 布尔表达式）+ `then`/`else` 子效果，可嵌套 | `if (...) { ... } else { ... }` |
+| `repeat` | 重复 `times` 次，子效果可嵌套 | `for` 循环 |
+| `custom` | 原样插入 C# 代码 | — |
+
+数值来源统一为：`var`（引用数值名）> `amount`（字面量）> 默认（能力触发器为 `Amount`，否则同名数值）。
+
+能力触发器新增 `AfterOwnerTurnEnd`（己方回合结束后）：生成真实钩子 `AfterSideTurnEnd` 并自动加
+`side != Owner.Side` 守卫（惯用法取自 RitsuLib 源码）。
 
 除卡牌外还支持 **遗物 / 能力 / 药水**（`relics` / `powers` / `potions` 数组）：
 
@@ -124,6 +144,6 @@ cargo run -p sts2mod-studio
 
 - [x] M1 流水线打通：项目格式、卡牌代码生成、CLI、最小 UI（已在真机游戏内验证）
 - [x] M2 遗物 / 能力 / 药水编辑器、图片一键导入、extraCode 逃生舱
-- [ ] M3 积木式效果编辑器扩展（触发时机 × 指令 × 条件）
+- [x] M3 效果积木扩展：8 种新积木（格挡/治疗/直伤/金币/音效/特效/条件/循环，支持嵌套）、能力新触发器
 - [ ] M4 怪物 / 遭遇 / 事件 / 人物向导（内置 tscn 模板）
 - [ ] M5 工坊上传（对接官方 sts2-mod-uploader）、导入已有 mod

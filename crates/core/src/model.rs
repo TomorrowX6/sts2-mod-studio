@@ -237,7 +237,65 @@ pub enum Effect {
         #[serde(default)]
         to_self: bool,
     },
-    /// 逃生舱：原样插入一段 C# 代码（OnPlay 方法体内）。
+    /// 获得格挡（CreatureCmd.GainBlock，默认 ValueProp.Move，吃敏捷）。默认数值名 "Block"。
+    Block {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        var: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        amount: Option<i64>,
+    },
+    /// 治疗自己（CreatureCmd.Heal）。默认数值名 "Heal"。
+    Heal {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        var: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        amount: Option<i64>,
+    },
+    /// 直接伤害（CreatureCmd.Damage，非攻击：无攻击动画、默认不可格挡不吃力量，
+    /// 适合"失去生命"或穿透伤害）。props 为空时默认 Unblockable|Unpowered。
+    #[serde(rename_all = "camelCase")]
+    DirectDamage {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        var: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        amount: Option<i64>,
+        #[serde(default)]
+        props: Vec<String>,
+        #[serde(default)]
+        to_self: bool,
+    },
+    /// 获得金币（PlayerCmd.GainGold）。默认数值名 "Gold"。
+    GainGold {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        var: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        amount: Option<i64>,
+    },
+    /// 播放音效（SfxCmd.Play），event 形如 "event:/sfx/block_gain"。
+    PlaySfx { event: String },
+    /// 播放特效（VfxCmd.PlayOnCreature），path 形如 "vfx/vfx_bloody_impact"。
+    #[serde(rename_all = "camelCase")]
+    PlayVfx {
+        path: String,
+        /// true 在自己身上播放，false 在目标身上（无目标宿主自动改为自己）。
+        #[serde(default)]
+        on_self: bool,
+    },
+    /// 条件分支：when 为 C# 布尔表达式，then/else 为效果序列（可嵌套）。
+    If {
+        when: String,
+        #[serde(default)]
+        then: Vec<Effect>,
+        #[serde(default, rename = "else", skip_serializing_if = "Vec::is_empty")]
+        otherwise: Vec<Effect>,
+    },
+    /// 重复执行 times 次（可嵌套）。
+    Repeat {
+        times: i64,
+        #[serde(default, rename = "do")]
+        body: Vec<Effect>,
+    },
+    /// 逃生舱：原样插入一段 C# 代码（方法体内）。
     Custom { code: String },
 }
 

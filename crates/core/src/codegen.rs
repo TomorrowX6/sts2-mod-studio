@@ -346,7 +346,9 @@ fn var_ctor(v: &VarDef) -> Result<String> {
 struct EffectCtx<'a> {
     /// 用于报错信息，如 "卡牌 TestCard"。
     label: String,
-    /// damage 积木的攻击目标表达式（仅卡牌有已验证写法）。
+    /// damage（攻击）积木的目标表达式——仅卡牌（链式 FromCard(this) 只对卡牌成立）。
+    attack_target: Option<&'a str>,
+    /// directDamage / playVfx 的目标表达式（卡牌与有目标药水可用）。
     damage_target: Option<&'a str>,
     /// draw 积木的 Player 表达式。
     draw_player: Option<&'a str>,
@@ -358,13 +360,46 @@ struct EffectCtx<'a> {
     apply_source: &'a str,
     /// var/amount 都未填时的默认数值表达式（能力用 Amount）。
     default_amount: Option<&'a str>,
+    /// 自己的 Creature 表达式（block/heal/vfx 用）。
+    self_creature: &'a str,
+    /// 金币归属的 Player 表达式（能力上下文没有，为 None）。
+    gold_player: Option<&'a str>,
+}
+
+/// 数值表达式：优先 var 访问器，其次字面量，最后默认 var 名（或上下文默认值）。
+fn amount_of(
+    ctx: &EffectCtx,
+    var: &Option<String>,
+    amount: &Option<i64>,
+    default_var: &str,
+    accessor: &str,
+) -> String {
+    match (var, amount) {
+        (Some(v), _) => format!("{}{accessor}", var_accessor(v)),
+        (None, Some(n)) => n.to_string(),
+        (None, None) => match ctx.default_amount {
+            Some(expr) => expr.to_string(),
+            None => format!("{}{accessor}", var_accessor(default_var)),
+        },
+    }
+}
+
+fn props_expr(props: &[String], default: &str) -> String {
+    if props.is_empty() {
+        default.to_string()
+    } else {
+        props.iter().map(|p| format!("ValueProp.{p}")).collect::<Vec<_>>().join(" | ")
+    }
 }
 
 fn effect_code(ctx: &EffectCtx, effect: &Effect, warnings: &mut Vec<String>) -> Result<String> {
     Ok(match effect {
         Effect::Damage { var } => {
-            let Some(target) = ctx.damage_target else {
-                bail!("{}: damage 积木只支持卡牌（其他宿主请用 custom 代码）", ctx.label);
+            let Some(target) = ctx.attack_target else {
+                bail!(
+                    "{}: damage（攻击）积木需要敌人目标——仅限 target 为敌人的卡牌；其他场景用 directDamage 或 custom",
+                    ctx.label
+                );
             };
             let name = var.clone().unwrap_or_else(|| "Damage".into());
             format!(
@@ -411,8 +446,82 @@ fn effect_code(ctx: &EffectCtx, effect: &Effect, warnings: &mut Vec<String>) -> 
                 ctx.apply_source
             )
         }
+        Effect::Block { var, amount } => {
+            let amt = amount_of(ctx, var, amount, "Block", ".BaseValue");
+            format!(
+                "await CreatureCmd.GainBlock({}, {amt}, ValueProp.Move, null);",
+                ctx.self_creature
+            )
+        }
+        Effect::Heal { var, amount } => {
+            let amt = amount_of(ctx, var, amount, "Heal", ".BaseValue");
+            format!("await CreatureCmd.Heal({}, {amt});", ctx.self_creature)
+        }
+        Effect::DirectDamage { var, amount, props, to_self } => {
+            let amt = amount_of(ctx, var, amount, "Damage", ".BaseValue");
+            let target = if *to_self {
+                ctx.self_creature.to_string()
+            } else {
+                match ctx.damage_target {
+                    Some(t) => t.to_string(),
+                    None => bail!("{}: directDamage 需要目标，该宿主没有目标（可勾选 toSelf 或用 custom）", ctx.label),
+                }
+            };
+            format!(
+                "await CreatureCmd.Damage(choiceContext, [{target}], {amt}, {}, {});",
+                props_expr(props, "ValueProp.Unblockable | ValueProp.Unpowered"),
+                ctx.self_creature
+            )
+        }
+        Effect::GainGold { var, amount } => {
+            let Some(player) = ctx.gold_player else {
+                bail!("{}: 该宿主上下文中没有 Player，无法使用 gainGold 积木", ctx.label);
+            };
+            let amt = amount_of(ctx, var, amount, "Gold", ".IntValue");
+            format!("await PlayerCmd.GainGold({amt}, {player});")
+        }
+        Effect::PlaySfx { event } => format!("SfxCmd.Play(\"{}\");", event.replace('"', "")),
+        Effect::PlayVfx { path, on_self } => {
+            let target = if *on_self {
+                ctx.self_creature.to_string()
+            } else {
+                ctx.damage_target.unwrap_or(ctx.self_creature).to_string()
+            };
+            format!("VfxCmd.PlayOnCreature({target}, \"{}\");", path.replace('"', ""))
+        }
+        Effect::If { when, then, otherwise } => {
+            let then_body = render_block(ctx, then, warnings)?;
+            let mut code = format!("if ({})\n{{\n{then_body}\n}}", when.trim());
+            if !otherwise.is_empty() {
+                let else_body = render_block(ctx, otherwise, warnings)?;
+                code.push_str(&format!("\nelse\n{{\n{else_body}\n}}"));
+            }
+            code
+        }
+        Effect::Repeat { times, body } => {
+            let inner = render_block(ctx, body, warnings)?;
+            format!("for (var i = 0; i < {times}; i++)\n{{\n{inner}\n}}")
+        }
         Effect::Custom { code } => code.trim_end().to_string(),
     })
+}
+
+/// 嵌套块体：相对缩进 4 空格（供 if/repeat 使用）。
+fn render_block(ctx: &EffectCtx, effects: &[Effect], warnings: &mut Vec<String>) -> Result<String> {
+    if effects.is_empty() {
+        return Ok("    // （空）".to_string());
+    }
+    let mut parts = Vec::new();
+    for e in effects {
+        let code = effect_code(ctx, e, warnings)?;
+        parts.push(
+            code.lines()
+                .map(|l| if l.is_empty() { l.to_string() } else { format!("    {l}") })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+    }
+    Ok(parts.join("\n"))
 }
 
 /// 把效果序列渲染成方法体（8 空格基础缩进）。
@@ -464,23 +573,19 @@ fn card_cs(project: &Project, card: &CardDef, warnings: &mut Vec<String>) -> Res
         writeln!(vars_src, "        {}{sep}", var_ctor(v)?).unwrap();
     }
 
+    let has_target = !matches!(card.target.as_str(), "None" | "Self");
     let ctx = EffectCtx {
         label: format!("卡牌 {class}"),
-        damage_target: Some("cardPlay.Target!"),
+        attack_target: has_target.then_some("cardPlay.Target!"),
+        damage_target: has_target.then_some("cardPlay.Target!"),
         draw_player: Some("Owner"),
         apply_self: "Owner",
-        apply_target: (!matches!(card.target.as_str(), "None" | "Self")).then_some("cardPlay.Target!"),
+        apply_target: has_target.then_some("cardPlay.Target!"),
         apply_source: "Owner",
         default_amount: None,
+        self_creature: "Owner.Creature",
+        gold_player: Some("Owner"),
     };
-    if card.on_play.iter().any(|e| matches!(e, Effect::Damage { .. }))
-        && matches!(card.target.as_str(), "None" | "Self")
-    {
-        warnings.push(format!(
-            "卡牌 {class}: damage 效果需要敌人目标，但 target 是 {}",
-            card.target
-        ));
-    }
     let on_play = if card.on_play.is_empty() {
         if card.card_type == "Attack" {
             warnings.push(format!("卡牌 {class}: 攻击牌没有任何打出效果"));
@@ -563,34 +668,60 @@ public class {class} : ModCardTemplate
 struct TriggerSpec {
     name: &'static str,
     sig: &'static str,
+    /// 方法体开头的守卫代码（如己方回合过滤），已含缩进的完整行。
+    prelude: Option<&'static str>,
     draw_player: Option<&'static str>,
     apply_self: &'static str,
     apply_target: Option<&'static str>,
     apply_source: &'static str,
     default_amount: Option<&'static str>,
+    self_creature: &'static str,
+    gold_player: Option<&'static str>,
 }
 
 /// 遗物可用触发器。
 const RELIC_TRIGGERS: &[TriggerSpec] = &[TriggerSpec {
     name: "AfterPlayerTurnStart",
     sig: "public override async Task AfterPlayerTurnStart(PlayerChoiceContext choiceContext, Player player)",
+    prelude: None,
     draw_player: Some("player"),
     apply_self: "player.Creature",
     apply_target: None,
     apply_source: "player.Creature",
     default_amount: None,
+    self_creature: "player.Creature",
+    gold_player: Some("player"),
 }];
 
 /// 能力可用触发器。
-const POWER_TRIGGERS: &[TriggerSpec] = &[TriggerSpec {
-    name: "AfterCardDrawn",
-    sig: "public override async Task AfterCardDrawn(PlayerChoiceContext choiceContext, CardModel card, bool fromHandDraw)",
-    draw_player: None,
-    apply_self: "Owner",
-    apply_target: None,
-    apply_source: "Owner",
-    default_amount: Some("Amount"),
-}];
+const POWER_TRIGGERS: &[TriggerSpec] = &[
+    TriggerSpec {
+        name: "AfterCardDrawn",
+        sig: "public override async Task AfterCardDrawn(PlayerChoiceContext choiceContext, CardModel card, bool fromHandDraw)",
+        prelude: None,
+        draw_player: None,
+        apply_self: "Owner",
+        apply_target: None,
+        apply_source: "Owner",
+        default_amount: Some("Amount"),
+        self_creature: "Owner",
+        gold_player: None,
+    },
+    // 己方回合结束后（真实钩子 AfterSideTurnEnd + 己方过滤，
+    // side == Owner.Side 惯用法来自 RitsuLib 源码）
+    TriggerSpec {
+        name: "AfterOwnerTurnEnd",
+        sig: "public override async Task AfterSideTurnEnd(PlayerChoiceContext choiceContext, CombatSide side, IEnumerable<Creature> participants)",
+        prelude: Some("        if (side != Owner.Side)\n        {\n            return;\n        }\n"),
+        draw_player: None,
+        apply_self: "Owner",
+        apply_target: None,
+        apply_source: "Owner",
+        default_amount: Some("Amount"),
+        self_creature: "Owner",
+        gold_player: None,
+    },
+];
 
 fn render_triggers(
     kind_label: &str,
@@ -619,17 +750,23 @@ fn render_triggers(
         }
         let ctx = EffectCtx {
             label: format!("{kind_label} {class_name} 触发器 {}", t.trigger),
+            attack_target: None,
             damage_target: None,
             draw_player: spec.draw_player,
             apply_self: spec.apply_self,
             apply_target: spec.apply_target,
             apply_source: spec.apply_source,
             default_amount: spec.default_amount,
+            self_creature: spec.self_creature,
+            gold_player: spec.gold_player,
         };
         let body = render_effects(&ctx, &t.effects, warnings)?;
         out.push_str(&format!(
-            "\n    // 触发器: {}\n    {}\n    {{\n{}\n    }}\n",
-            t.trigger, spec.sig, body
+            "\n    // 触发器: {}\n    {}\n    {{\n{}{}\n    }}\n",
+            t.trigger,
+            spec.sig,
+            spec.prelude.unwrap_or(""),
+            body
         ));
     }
     Ok(out)
@@ -712,10 +849,13 @@ fn power_cs(project: &Project, power: &crate::model::PowerDef, warnings: &mut Ve
     let triggers = render_triggers("能力", class, &power.triggers, POWER_TRIGGERS, warnings)?;
     Ok(format!(
         r#"// 由 sts2mod 生成，勿手改（每次生成会覆盖）。自定义代码请放在项目的 src/ 目录。
+using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Commands;
+using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Powers;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Models.Cards;
+using MegaCrit.Sts2.Core.ValueProps;
 using STS2RitsuLib.Interop.AutoRegistration;
 using STS2RitsuLib.Scaffolding.Content;
 
@@ -751,14 +891,18 @@ fn potion_cs(project: &Project, potion: &crate::model::PotionDef, warnings: &mut
         other => other.to_string(),
     };
     let ext = asset_ext(&potion.image);
+    let has_target = !matches!(potion.target.as_str(), "None" | "Self");
     let ctx = EffectCtx {
         label: format!("药水 {class}"),
-        damage_target: None,
+        attack_target: None,
+        damage_target: has_target.then_some("target!"),
         draw_player: Some("Owner"),
         apply_self: "Owner.Creature",
-        apply_target: (!matches!(potion.target.as_str(), "None" | "Self")).then_some("target!"),
+        apply_target: has_target.then_some("target!"),
         apply_source: "Owner.Creature",
         default_amount: None,
+        self_creature: "Owner.Creature",
+        gold_player: Some("Owner"),
     };
     let on_use = if potion.on_use.is_empty() {
         warnings.push(format!("药水 {class}: 没有任何使用效果"));

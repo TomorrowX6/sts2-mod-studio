@@ -269,5 +269,106 @@ fn invalid_trigger_rejected() {
         extra_code: None,
     });
     let err = match codegen::generate(&project) { Err(e) => e.to_string(), Ok(_) => panic!("应当失败") };
-    assert!(err.contains("damage 积木只支持卡牌"), "实际错误: {err}");
+    assert!(err.contains("damage（攻击）积木需要敌人目标"), "实际错误: {err}");
+}
+
+#[test]
+fn m3_effect_blocks() {
+    let mut project = model::starter_project("Test", "x");
+    let card = &mut project.cards[0];
+    card.vars.push(VarDef { kind: "Block".into(), power: None, value: 5, props: vec![], upgrade: 0 });
+    card.on_play = vec![
+        Effect::Block { var: None, amount: None },
+        Effect::Heal { var: None, amount: Some(3) },
+        Effect::DirectDamage { var: None, amount: Some(2), props: vec![], to_self: true },
+        Effect::GainGold { var: None, amount: Some(10) },
+        Effect::PlaySfx { event: "event:/sfx/block_gain".into() },
+        Effect::PlayVfx { path: "vfx/vfx_block".into(), on_self: true },
+        Effect::If {
+            when: "Owner.Creature.Block > 0".into(),
+            then: vec![Effect::Draw { var: None }],
+            otherwise: vec![Effect::Heal { var: None, amount: Some(1) }],
+        },
+        Effect::Repeat { times: 3, body: vec![Effect::Damage { var: None }] },
+    ];
+
+    let out = codegen::generate(&project).unwrap();
+    let cs = file(&out, "Scripts/Cards/SampleStrike.cs");
+    assert!(cs.contains("await CreatureCmd.GainBlock(Owner.Creature, DynamicVars.Block.BaseValue, ValueProp.Move, null);"));
+    assert!(cs.contains("await CreatureCmd.Heal(Owner.Creature, 3);"));
+    assert!(cs.contains("await CreatureCmd.Damage(choiceContext, [Owner.Creature], 2, ValueProp.Unblockable | ValueProp.Unpowered, Owner.Creature);"));
+    assert!(cs.contains("await PlayerCmd.GainGold(10, Owner);"));
+    assert!(cs.contains("SfxCmd.Play(\"event:/sfx/block_gain\");"));
+    assert!(cs.contains("VfxCmd.PlayOnCreature(Owner.Creature, \"vfx/vfx_block\");"));
+    assert!(cs.contains("if (Owner.Creature.Block > 0)"));
+    assert!(cs.contains("else"));
+    assert!(cs.contains("for (var i = 0; i < 3; i++)"));
+    // 嵌套的 damage 在 for 循环内
+    assert!(cs.contains("    await DamageCmd.Attack(DynamicVars.Damage.BaseValue)"));
+}
+
+#[test]
+fn m3_power_owner_turn_end_trigger() {
+    use sts2mod_core::model::{PowerDef, TriggerDef};
+
+    let mut project = model::starter_project("Test", "x");
+    project.powers.push(PowerDef {
+        class_name: "BurnPower".into(),
+        power_type: "Debuff".into(),
+        stack_type: "Counter".into(),
+        icon: None,
+        triggers: vec![TriggerDef {
+            trigger: "AfterOwnerTurnEnd".into(),
+            effects: vec![Effect::DirectDamage { var: None, amount: None, props: vec![], to_self: true }],
+        }],
+        text: Default::default(),
+        extra_code: None,
+    });
+    let out = codegen::generate(&project).unwrap();
+    let cs = file(&out, "Scripts/Powers/BurnPower.cs");
+    // 真实钩子 + 己方过滤守卫
+    assert!(cs.contains("public override async Task AfterSideTurnEnd(PlayerChoiceContext choiceContext, CombatSide side, IEnumerable<Creature> participants)"));
+    assert!(cs.contains("if (side != Owner.Side)"));
+    // 能力上下文默认数值 Amount
+    assert!(cs.contains("await CreatureCmd.Damage(choiceContext, [Owner], Amount, ValueProp.Unblockable | ValueProp.Unpowered, Owner);"));
+}
+
+#[test]
+fn m3_context_restrictions() {
+    use sts2mod_core::model::PotionDef;
+
+    // 无目标药水不能用攻击 damage
+    let mut project = model::starter_project("Test", "x");
+    project.potions.push(PotionDef {
+        class_name: "BadPotion".into(),
+        pool: "Shared".into(),
+        rarity: "Common".into(),
+        usage: "CombatOnly".into(),
+        target: "AnyEnemy".into(),
+        image: None,
+        vars: vec![],
+        on_use: vec![Effect::Damage { var: None }],
+        text: Default::default(),
+        extra_code: None,
+    });
+    let err = match codegen::generate(&project) { Err(e) => e.to_string(), Ok(_) => panic!("应当失败") };
+    assert!(err.contains("damage（攻击）积木需要敌人目标"), "实际错误: {err}");
+
+    // 有目标药水可以用 directDamage 打目标
+    let mut project = model::starter_project("Test", "x");
+    project.potions.push(PotionDef {
+        class_name: "AcidPotion".into(),
+        pool: "Shared".into(),
+        rarity: "Common".into(),
+        usage: "CombatOnly".into(),
+        target: "AnyEnemy".into(),
+        image: None,
+        vars: vec![VarDef { kind: "Damage".into(), power: None, value: 8, props: vec![], upgrade: 0 }],
+        on_use: vec![Effect::DirectDamage { var: None, amount: None, props: vec![], to_self: false }],
+        text: Default::default(),
+        extra_code: None,
+    });
+    let out = codegen::generate(&project).unwrap();
+    let cs = file(&out, "Scripts/Potions/AcidPotion.cs");
+    assert!(cs.contains("await CreatureCmd.Damage(choiceContext, [target!], DynamicVars.Damage.BaseValue, ValueProp.Unblockable | ValueProp.Unpowered, Owner.Creature);"));
 }

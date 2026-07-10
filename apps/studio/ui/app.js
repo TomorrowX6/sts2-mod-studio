@@ -19,7 +19,7 @@ const KINDS = {
     assetField: "portrait",
     effectsField: "onPlay",
     effectsLabel: "打出效果（按顺序执行）",
-    effectOps: ["damage", "draw", "applyPower", "custom"],
+    effectOps: ["damage", "directDamage", "block", "heal", "draw", "applyPower", "gainGold", "playSfx", "playVfx", "if", "repeat", "custom"],
     textFields: ["title", "description"],
     hasVars: true,
     newItem: (n) => ({
@@ -35,7 +35,7 @@ const KINDS = {
     assetCategory: "relics",
     assetField: "icon",
     triggers: ["AfterPlayerTurnStart"],
-    effectOps: ["draw", "applyPower", "custom"],
+    effectOps: ["block", "heal", "draw", "applyPower", "gainGold", "playSfx", "playVfx", "if", "repeat", "custom"],
     textFields: ["title", "description", "flavor"],
     hasVars: true,
     newItem: (n) => ({
@@ -49,8 +49,8 @@ const KINDS = {
     label: "能力",
     assetCategory: "powers",
     assetField: "icon",
-    triggers: ["AfterCardDrawn"],
-    effectOps: ["applyPower", "custom"],
+    triggers: ["AfterCardDrawn", "AfterOwnerTurnEnd"],
+    effectOps: ["applyPower", "block", "heal", "directDamage", "playSfx", "playVfx", "if", "repeat", "custom"],
     textFields: ["title", "description", "smartDescription"],
     hasVars: false,
     newItem: (n) => ({
@@ -65,7 +65,7 @@ const KINDS = {
     assetField: "image",
     effectsField: "onUse",
     effectsLabel: "使用效果（按顺序执行）",
-    effectOps: ["draw", "applyPower", "custom"],
+    effectOps: ["directDamage", "block", "heal", "draw", "applyPower", "gainGold", "playSfx", "playVfx", "if", "repeat", "custom"],
     textFields: ["title", "description"],
     hasVars: true,
     newItem: (n) => ({
@@ -290,7 +290,7 @@ function renderEditor() {
   if (cfg.effectsField) {
     panel.appendChild(sectionHeader(cfg.effectsLabel, () => {
       item[cfg.effectsField] = item[cfg.effectsField] || [];
-      item[cfg.effectsField].push({ op: cfg.effectOps[0] });
+      item[cfg.effectsField].push(defaultEffect(cfg.effectOps[0]));
       renderEditor();
     }));
     const effBox = document.createElement("div");
@@ -314,7 +314,7 @@ function renderEditor() {
       const addEff = document.createElement("button");
       addEff.className = "small";
       addEff.textContent = "＋效果";
-      addEff.onclick = () => { t.effects.push({ op: cfg.effectOps[0] }); renderEditor(); };
+      addEff.onclick = () => { t.effects.push(defaultEffect(cfg.effectOps[0])); renderEditor(); };
       head.appendChild(addEff);
       head.appendChild(delBtn(() => { item.triggers.splice(ti, 1); renderEditor(); }));
       box.appendChild(head);
@@ -427,6 +427,39 @@ function renderEffectRows(box, effects, allowedOps) {
       cb.onchange = () => e.toSelf = cb.checked;
       chk.append(cb, "给自己");
       row.appendChild(chk);
+    } else if (e.op === "block" || e.op === "heal" || e.op === "gainGold") {
+      const defName = { block: "Block", heal: "Heal", gainGold: "Gold" }[e.op];
+      row.appendChild(labeled("数值名", textInput(e.var || "", (v) => e.var = v || undefined, defName + "（默认）")));
+      row.appendChild(labeled("固定值", textInput(e.amount ?? "", (v) => e.amount = v === "" ? undefined : Number(v)), "narrow"));
+    } else if (e.op === "directDamage") {
+      row.appendChild(labeled("数值名", textInput(e.var || "", (v) => e.var = v || undefined, "Damage（默认）")));
+      row.appendChild(labeled("固定值", textInput(e.amount ?? "", (v) => e.amount = v === "" ? undefined : Number(v)), "narrow"));
+      row.appendChild(labeled("属性(逗号分隔)", textInput((e.props || []).join(","),
+        (v) => e.props = v.split(",").map(s => s.trim()).filter(Boolean), "默认 Unblockable,Unpowered")));
+      const chk = document.createElement("label");
+      chk.className = "checkline";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !!e.toSelf;
+      cb.onchange = () => e.toSelf = cb.checked;
+      chk.append(cb, "对自己");
+      row.appendChild(chk);
+    } else if (e.op === "playSfx") {
+      row.appendChild(labeled("音效事件", textInput(e.event || "", (v) => e.event = v, "event:/sfx/block_gain")));
+    } else if (e.op === "playVfx") {
+      row.appendChild(labeled("特效路径", textInput(e.path || "", (v) => e.path = v, "vfx/vfx_bloody_impact")));
+      const chk = document.createElement("label");
+      chk.className = "checkline";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !!e.onSelf;
+      cb.onchange = () => e.onSelf = cb.checked;
+      chk.append(cb, "在自己身上");
+      row.appendChild(chk);
+    } else if (e.op === "if") {
+      row.appendChild(labeled("条件（C# 布尔表达式）", textInput(e.when || "", (v) => e.when = v, "Owner.Creature.Block > 0")));
+    } else if (e.op === "repeat") {
+      row.appendChild(labeled("次数", numInput(e.times ?? 2, (v) => e.times = v), "narrow"));
     } else if (e.op === "custom") {
       const ta = document.createElement("textarea");
       ta.rows = 2;
@@ -440,12 +473,42 @@ function renderEffectRows(box, effects, allowedOps) {
     }
     row.appendChild(delBtn(() => { effects.splice(i, 1); renderEditor(); }));
     box.appendChild(row);
+
+    // if / repeat 的嵌套效果块
+    if (e.op === "if") {
+      box.appendChild(nestedBlock("满足时", e.then = e.then || [], allowedOps));
+      box.appendChild(nestedBlock("否则（可空）", e.else = e.else || [], allowedOps));
+    } else if (e.op === "repeat") {
+      box.appendChild(nestedBlock("循环体", e.do = e.do || [], allowedOps));
+    }
   });
+}
+
+function nestedBlock(title, effects, allowedOps) {
+  const wrap = document.createElement("div");
+  wrap.className = "nested-box";
+  const head = document.createElement("div");
+  head.className = "nested-head muted";
+  head.textContent = title + " ";
+  const add = document.createElement("button");
+  add.className = "small";
+  add.textContent = "＋效果";
+  add.onclick = () => { effects.push(defaultEffect(allowedOps[0])); renderEditor(); };
+  head.appendChild(add);
+  wrap.appendChild(head);
+  const inner = document.createElement("div");
+  wrap.appendChild(inner);
+  renderEffectRows(inner, effects, allowedOps);
+  return wrap;
 }
 
 function defaultEffect(op) {
   if (op === "applyPower") return { op, power: "WeakPower", toSelf: false };
   if (op === "custom") return { op, code: "" };
+  if (op === "playSfx") return { op, event: "" };
+  if (op === "playVfx") return { op, path: "", onSelf: false };
+  if (op === "if") return { op, when: "", then: [], else: [] };
+  if (op === "repeat") return { op, times: 2, do: [] };
   return { op };
 }
 

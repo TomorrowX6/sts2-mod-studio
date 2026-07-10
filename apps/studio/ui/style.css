@@ -63,3 +63,8 @@ footer { border-top: 1px solid #3a3d46; background: #22242a; padding: 8px 12px; 
 }
 #doctor-result li.ok::before { content: "✔ "; color: #a3be8c; }
 #doctor-result li.bad::before { content: "✘ "; color: #bf616a; }
+.nested-box {
+  margin: 2px 0 6px 24px; padding: 4px 6px;
+  border-left: 2px solid #4c566a; border-radius: 0 4px 4px 0; background: #1c1e24;
+}
+.nested-head { margin-bottom: 2px; }
