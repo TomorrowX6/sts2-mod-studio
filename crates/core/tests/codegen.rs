@@ -100,9 +100,9 @@ fn effects_and_power_vars() {
     assert!(cs.contains("Log.Info(\"hi\");"));
     assert!(cs.contains("DynamicVars[\"WeakPower\"].UpgradeValueBy(1);"));
 
-    // 本地化 ID 前缀
+    // 本地化 ID 前缀：modid 驼峰也会拆分（游戏内实测确认）
     let zhs = file(&out, "MyMod/localization/zhs/cards.json");
-    assert!(zhs.contains("MYMOD_CARD_SAMPLE_STRIKE.title"));
+    assert!(zhs.contains("MY_MOD_CARD_SAMPLE_STRIKE.title"));
 }
 
 #[test]

@@ -40,7 +40,8 @@ cd MyMod
 sts2mod deploy              # 生成 + dotnet build + godot 导出 pck → 游戏 mods/
 ```
 
-进游戏后战斗中按 `~` 控制台输入 `card MYMOD_CARD_SAMPLE_STRIKE` 即可拿到示例卡牌。
+进游戏后战斗中按 `~` 控制台输入 `card MY_MOD_CARD_SAMPLE_STRIKE` 即可拿到示例卡牌
+（`deploy` 成功后会打印每张卡的确切指令；注意 RitsuLib 对 modid 也做驼峰蛇形化：`MyMod` → `MY_MOD`）。
 
 ## 项目文件
 
