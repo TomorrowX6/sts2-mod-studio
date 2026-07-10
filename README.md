@@ -91,6 +91,25 @@ cargo run -p sts2mod-studio
 工具链设置存全局配置（`~/.config/sts2mod/config.json` 或 `%APPDATA%/sts2mod`），
 项目目录下可用 `sts2mod.local.json` 覆盖。
 
+## 验证状态（2026-07-10，Linux 开发机）
+
+无游戏本体的环境下已验证：
+
+- 代码生成快照测试 5 项全过；CLI `new → generate → doctor` 端到端
+- `dotnet build`（.NET SDK 9.0.118）：NuGet 成功还原 `Godot.NET.Sdk/4.5.1` 与 `STS2.RitsuLib`
+- 生成代码对 **RitsuLib 0.4.54 真实包**反编译比对：`ModCardTemplate` 五参构造、
+  `RegisterCardAttribute(Type)`、`CreateLogger` / `EnsureGodotScriptsRegistered` /
+  `RegisterModAssembly` 签名全部一致；stub 编译的全部报错均指向缺失的 sts2.dll，无 RitsuLib 误用
+- Godot 4.5.1 Mono 无头导出 pck 成功，pck 内含 `{modid}/localization/{lang}/cards.json`
+  且 ID 键名正确；产物正确落到 `<游戏目录>/mods/<ModId>/`
+- 构建失败时 CLI 正确返回非零退出码；Tauri 应用 Xvfb 冒烟测试通过
+
+待真实环境（装有游戏的 Windows 机器）验证：
+
+- 引用真实 sts2.dll 的完整编译（`damage` 效果链出自官方教程原文；`draw` / `applyPower`
+  两个积木的签名由教程推断，如报错请反馈调整模板）
+- 游戏内加载与卡牌实际效果
+
 ## 路线图
 
 - [x] M1 流水线打通：项目格式、卡牌代码生成、CLI、最小 UI
