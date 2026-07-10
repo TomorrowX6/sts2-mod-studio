@@ -80,7 +80,16 @@ MyMod/
 }
 ```
 
-效果积木目前支持 `damage` / `draw` / `applyPower` / `custom`（原样插入 C#）。
+效果积木目前支持 `damage`（仅卡牌）/ `draw` / `applyPower` / `custom`（原样插入 C#）。
+
+除卡牌外还支持 **遗物 / 能力 / 药水**（`relics` / `powers` / `potions` 数组）：
+
+- 遗物：稀有度、数值、触发器（`AfterPlayerTurnStart`）、文本（含 flavor）
+- 能力：Buff/Debuff、叠加方式、触发器（`AfterCardDrawn`，applyPower 默认层数为 `Amount`）、
+  文本（含 `smartDescription`，可用 `{Amount}`）
+- 药水：稀有度、使用方式、目标、`onUse` 效果、文本
+- 所有内容都有 `extraCode` 逃生舱：原样插入类体，可重写白名单外的任意钩子
+- 触发器白名单外的钩子名会在生成时报错（防止拼错静默失效）
 
 ## 桌面应用
 
@@ -113,8 +122,8 @@ cargo run -p sts2mod-studio
 
 ## 路线图
 
-- [x] M1 流水线打通：项目格式、卡牌代码生成、CLI、最小 UI
-- [ ] M2 遗物 / 能力 / 药水编辑器、图片导入、本地化表格
+- [x] M1 流水线打通：项目格式、卡牌代码生成、CLI、最小 UI（已在真机游戏内验证）
+- [x] M2 遗物 / 能力 / 药水编辑器、图片一键导入、extraCode 逃生舱
 - [ ] M3 积木式效果编辑器扩展（触发时机 × 指令 × 条件）
 - [ ] M4 怪物 / 遭遇 / 事件 / 人物向导（内置 tscn 模板）
 - [ ] M5 工坊上传（对接官方 sts2-mod-uploader）、导入已有 mod

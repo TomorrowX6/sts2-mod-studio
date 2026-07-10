@@ -67,7 +67,7 @@ fn starter_project_generates_expected_tree() {
     assert!(csproj.contains("STS2.RitsuLib"));
 
     // 无卡图 → 有警告
-    assert!(out.warnings.iter().any(|w| w.contains("未设置卡图")));
+    assert!(out.warnings.iter().any(|w| w.contains("未设置图片")));
 }
 
 #[test]
@@ -122,4 +122,152 @@ fn validation_rejects_bad_input() {
     let mut p = model::starter_project("Test", "x");
     p.cards[0].text.insert("zhs".into(), CardText { title: "t".into(), description: "d".into() });
     assert!(p.validate().is_ok());
+}
+
+#[test]
+fn relic_power_potion_generation() {
+    use sts2mod_core::model::{PotionDef, PowerDef, RelicDef, RelicText, PowerText, TriggerDef};
+    use std::collections::BTreeMap;
+
+    let mut project = model::starter_project("MyMod", "x");
+
+    let mut relic_text = BTreeMap::new();
+    relic_text.insert("zhs".to_string(), RelicText {
+        title: "测试遗物".into(),
+        description: "每回合开始时，抽[blue]{Cards}[/blue]张牌。".into(),
+        flavor: "眼熟吗？".into(),
+    });
+    project.relics.push(RelicDef {
+        class_name: "LuckyCoin".into(),
+        pool: "Shared".into(),
+        rarity: "Common".into(),
+        icon: Some("assets/relics/LuckyCoin.png".into()),
+        vars: vec![VarDef { kind: "Cards".into(), power: None, value: 1, props: vec![], upgrade: 0 }],
+        triggers: vec![TriggerDef {
+            trigger: "AfterPlayerTurnStart".into(),
+            effects: vec![Effect::Draw { var: None }],
+        }],
+        text: relic_text,
+        extra_code: None,
+    });
+
+    let mut power_text = BTreeMap::new();
+    power_text.insert("zhs".to_string(), PowerText {
+        title: "邪火".into(),
+        description: "每次抽牌时，获得力量。".into(),
+        smart_description: "每次抽牌时，获得[blue]{Amount}[/blue]点力量。".into(),
+    });
+    project.powers.push(PowerDef {
+        class_name: "EvilFlame".into(),
+        power_type: "Buff".into(),
+        stack_type: "Counter".into(),
+        icon: None,
+        triggers: vec![TriggerDef {
+            trigger: "AfterCardDrawn".into(),
+            effects: vec![Effect::ApplyPower {
+                power: "StrengthPower".into(),
+                var: None,
+                amount: None,
+                to_self: true,
+            }],
+        }],
+        text: power_text,
+        extra_code: Some("public int Extra;".into()),
+    });
+
+    let mut potion_text = BTreeMap::new();
+    potion_text.insert("zhs".to_string(), CardText {
+        title: "抽牌药水".into(),
+        description: "抽{Cards}张牌。".into(),
+    });
+    project.potions.push(PotionDef {
+        class_name: "DrawPotion".into(),
+        pool: "Shared".into(),
+        rarity: "Common".into(),
+        usage: "CombatOnly".into(),
+        target: "Self".into(),
+        image: None,
+        vars: vec![VarDef { kind: "Cards".into(), power: None, value: 3, props: vec![], upgrade: 0 }],
+        on_use: vec![Effect::Draw { var: None }],
+        text: potion_text,
+        extra_code: None,
+    });
+
+    let out = codegen::generate(&project).unwrap();
+
+    // 遗物
+    let relic = file(&out, "Scripts/Relics/LuckyCoin.cs");
+    assert!(relic.contains("[RegisterRelic(typeof(SharedRelicPool))]"));
+    assert!(relic.contains("public class LuckyCoin : ModRelicTemplate"));
+    assert!(relic.contains("RelicRarity.Common"));
+    assert!(relic.contains("new CardsVar(1)"));
+    assert!(relic.contains("public override async Task AfterPlayerTurnStart(PlayerChoiceContext choiceContext, Player player)"));
+    assert!(relic.contains("await CardPileCmd.Draw(choiceContext, DynamicVars.Cards.IntValue, player);"));
+    assert!(relic.contains("IconOutlinePath: \"res://MyMod/images/relics/LuckyCoin.png\""));
+
+    // 能力
+    let power = file(&out, "Scripts/Powers/EvilFlame.cs");
+    assert!(power.contains("[RegisterPower]"));
+    assert!(power.contains("public class EvilFlame : ModPowerTemplate"));
+    assert!(power.contains("PowerType.Buff"));
+    assert!(power.contains("PowerStackType.Counter"));
+    assert!(power.contains("public override async Task AfterCardDrawn(PlayerChoiceContext choiceContext, CardModel card, bool fromHandDraw)"));
+    // 未指定数值时能力默认用 Amount（与教程一致）
+    assert!(power.contains("await PowerCmd.Apply<StrengthPower>(choiceContext, Owner, Amount, Owner, null);"));
+    assert!(power.contains("public int Extra;"));
+
+    // 药水
+    let potion = file(&out, "Scripts/Potions/DrawPotion.cs");
+    assert!(potion.contains("[RegisterPotion(typeof(SharedPotionPool))]"));
+    assert!(potion.contains("public class DrawPotion : ModPotionTemplate"));
+    assert!(potion.contains("PotionUsage.CombatOnly"));
+    assert!(potion.contains("TargetType.Self"));
+    assert!(potion.contains("protected override async Task OnUse(PlayerChoiceContext choiceContext, Creature? target)"));
+    assert!(potion.contains("await CardPileCmd.Draw(choiceContext, DynamicVars.Cards.IntValue, Owner);"));
+
+    // 本地化
+    let relics_zhs = file(&out, "MyMod/localization/zhs/relics.json");
+    assert!(relics_zhs.contains("MY_MOD_RELIC_LUCKY_COIN.title"));
+    assert!(relics_zhs.contains("MY_MOD_RELIC_LUCKY_COIN.flavor"));
+    let powers_zhs = file(&out, "MyMod/localization/zhs/powers.json");
+    assert!(powers_zhs.contains("MY_MOD_POWER_EVIL_FLAME.smartDescription"));
+    let potions_zhs = file(&out, "MyMod/localization/zhs/potions.json");
+    assert!(potions_zhs.contains("MY_MOD_POTION_DRAW_POTION.title"));
+}
+
+#[test]
+fn invalid_trigger_rejected() {
+    use sts2mod_core::model::{RelicDef, TriggerDef};
+
+    let mut project = model::starter_project("Test", "x");
+    project.relics.push(RelicDef {
+        class_name: "BadRelic".into(),
+        pool: "Shared".into(),
+        rarity: "Common".into(),
+        icon: None,
+        vars: vec![],
+        triggers: vec![TriggerDef { trigger: "NoSuchHook".into(), effects: vec![Effect::Draw { var: None }] }],
+        text: Default::default(),
+        extra_code: None,
+    });
+    let err = match codegen::generate(&project) { Err(e) => e.to_string(), Ok(_) => panic!("应当失败") };
+    assert!(err.contains("不支持的触发器"), "实际错误: {err}");
+
+    // damage 在遗物触发器里不可用
+    let mut project = model::starter_project("Test", "x");
+    project.relics.push(RelicDef {
+        class_name: "BadRelic2".into(),
+        pool: "Shared".into(),
+        rarity: "Common".into(),
+        icon: None,
+        vars: vec![],
+        triggers: vec![TriggerDef {
+            trigger: "AfterPlayerTurnStart".into(),
+            effects: vec![Effect::Damage { var: None }],
+        }],
+        text: Default::default(),
+        extra_code: None,
+    });
+    let err = match codegen::generate(&project) { Err(e) => e.to_string(), Ok(_) => panic!("应当失败") };
+    assert!(err.contains("damage 积木只支持卡牌"), "实际错误: {err}");
 }

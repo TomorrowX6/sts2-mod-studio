@@ -20,6 +20,12 @@ pub struct Project {
     pub csharp_namespace: Option<String>,
     #[serde(default)]
     pub cards: Vec<CardDef>,
+    #[serde(default)]
+    pub relics: Vec<RelicDef>,
+    #[serde(default)]
+    pub powers: Vec<PowerDef>,
+    #[serde(default)]
+    pub potions: Vec<PotionDef>,
 }
 
 /// 对应游戏要求的 `{modid}.json` 清单（camelCase 为工具内格式，
@@ -76,6 +82,114 @@ pub struct CardDef {
     /// 本地化文本：语言代码（zhs / en / ...）→ 文本。
     #[serde(default)]
     pub text: BTreeMap<String, CardText>,
+    /// 逃生舱：原样插入类体的 C# 代码（额外字段、钩子重写等）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_code: Option<String>,
+}
+
+/// 触发器 = 钩子方法 + 依次执行的效果。钩子名必须在该内容类型的白名单里。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerDef {
+    /// 钩子名，如遗物的 "AfterPlayerTurnStart"、能力的 "AfterCardDrawn"。
+    pub trigger: String,
+    #[serde(default)]
+    pub effects: Vec<Effect>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelicDef {
+    pub class_name: String,
+    /// "Shared" → SharedRelicPool，或自定义池类名。
+    #[serde(default = "default_shared")]
+    pub pool: String,
+    /// Common / Uncommon / Rare / Boss / Shop / Special
+    pub rarity: String,
+    /// 图标（项目内相对路径），三处图标（小图/轮廓/大图）共用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub vars: Vec<VarDef>,
+    #[serde(default)]
+    pub triggers: Vec<TriggerDef>,
+    /// title / description / flavor
+    #[serde(default)]
+    pub text: BTreeMap<String, RelicText>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelicText {
+    pub title: String,
+    pub description: String,
+    #[serde(default)]
+    pub flavor: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PowerDef {
+    pub class_name: String,
+    /// Buff / Debuff
+    pub power_type: String,
+    /// Counter（可叠加）/ Single（不可叠加）
+    pub stack_type: String,
+    /// 图标，小图/大图共用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub triggers: Vec<TriggerDef>,
+    /// title / description / smartDescription
+    #[serde(default)]
+    pub text: BTreeMap<String, PowerText>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PowerText {
+    pub title: String,
+    /// 静态描述（卡牌悬浮提示等场景）。
+    pub description: String,
+    /// 动态描述，可用 {Amount} 显示层数。留空则不生成该键。
+    #[serde(default)]
+    pub smart_description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PotionDef {
+    pub class_name: String,
+    /// "Shared" → SharedPotionPool，或自定义池类名。
+    #[serde(default = "default_shared")]
+    pub pool: String,
+    /// Common / Uncommon / Rare
+    pub rarity: String,
+    /// CombatOnly / Anywhere 等 PotionUsage 枚举值。
+    pub usage: String,
+    /// TargetType，如 Self / AnyEnemy / None。
+    pub target: String,
+    /// 药水图（本体与轮廓共用）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    #[serde(default)]
+    pub vars: Vec<VarDef>,
+    /// 使用时效果（对应 OnUse）。
+    #[serde(default)]
+    pub on_use: Vec<Effect>,
+    /// title / description
+    #[serde(default)]
+    pub text: BTreeMap<String, CardText>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_code: Option<String>,
+}
+
+fn default_shared() -> String {
+    "Shared".into()
 }
 
 /// 卡牌数值（DynamicVar）。
@@ -188,18 +302,31 @@ impl Project {
             }
         }
         let mut seen = std::collections::HashSet::new();
-        for card in &self.cards {
-            if !is_pascal_case_ident(&card.class_name) {
-                bail!("卡牌类名必须是 PascalCase 的合法 C# 标识符（当前: {}）", card.class_name);
+        let mut check = |label: &str, class_name: &str, vars: &[VarDef]| -> Result<()> {
+            if !is_pascal_case_ident(class_name) {
+                bail!("{label}类名必须是 PascalCase 的合法 C# 标识符（当前: {class_name}）");
             }
-            if !seen.insert(card.class_name.clone()) {
-                bail!("卡牌类名重复: {}", card.class_name);
+            if !seen.insert(class_name.to_string()) {
+                bail!("类名重复: {class_name}（所有内容的类名需全局唯一）");
             }
-            for v in &card.vars {
+            for v in vars {
                 if v.kind == "Power" && v.power.is_none() {
-                    bail!("卡牌 {}: kind=Power 的数值必须填 power 字段", card.class_name);
+                    bail!("{label} {class_name}: kind=Power 的数值必须填 power 字段");
                 }
             }
+            Ok(())
+        };
+        for c in &self.cards {
+            check("卡牌", &c.class_name, &c.vars)?;
+        }
+        for r in &self.relics {
+            check("遗物", &r.class_name, &r.vars)?;
+        }
+        for p in &self.powers {
+            check("能力", &p.class_name, &[])?;
+        }
+        for p in &self.potions {
+            check("药水", &p.class_name, &p.vars)?;
         }
         Ok(())
     }
@@ -270,6 +397,10 @@ pub fn starter_project(id: &str, name: &str) -> Project {
             }],
             on_play: vec![Effect::Damage { var: None }],
             text,
+            extra_code: None,
         }],
+        relics: vec![],
+        powers: vec![],
+        potions: vec![],
     }
 }

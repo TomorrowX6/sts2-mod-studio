@@ -14,8 +14,8 @@ main { display: flex; gap: 12px; padding: 12px; flex: 1; overflow: auto; }
   background: #26282f; border: 1px solid #3a3d46; border-radius: 8px;
   padding: 12px; overflow: auto;
 }
-#manifest-panel { width: 340px; flex-shrink: 0; }
-#card-panel { flex: 1; }
+#sidebar { width: 340px; flex-shrink: 0; }
+#edit-panel { flex: 1; }
 #settings { margin: 12px; }
 h3, h4 { margin: 10px 0 6px; }
 label { display: block; margin: 6px 0; color: #b9bdc7; }
@@ -37,12 +37,17 @@ button.small { padding: 1px 8px; font-size: 12px; }
 button.danger { background: #7b3b46; }
 .muted { color: #8b8f9a; font-size: 12px; }
 .hidden { display: none !important; }
-#card-list { list-style: none; padding: 0; margin: 4px 0; }
-#card-list li {
+.content-list { list-style: none; padding: 0; margin: 4px 0; }
+.content-list li {
   padding: 5px 8px; border-radius: 4px; cursor: pointer; margin: 2px 0;
 }
-#card-list li:hover { background: #31343d; }
-#card-list li.selected { background: #3b4252; }
+.content-list li:hover { background: #31343d; }
+.content-list li.selected { background: #3b4252; }
+.trigger-box {
+  border: 1px solid #3a3d46; border-radius: 6px;
+  padding: 6px; margin: 6px 0; background: #22242b;
+}
+textarea.code { font-family: Consolas, "Courier New", monospace; font-size: 12px; }
 .row {
   display: flex; gap: 6px; align-items: center; margin: 4px 0;
   background: #1f2127; padding: 5px; border-radius: 4px;

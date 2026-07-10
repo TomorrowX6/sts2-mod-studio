@@ -89,6 +89,31 @@ fn doctor(dir: Option<String>) -> CmdResult<Vec<CheckDto>> {
         .collect())
 }
 
+/// 把用户选择的图片复制进项目 assets/{category}/{ClassName}.{ext}，返回相对路径。
+#[tauri::command]
+fn import_asset(dir: String, category: String, class_name: String, src: String) -> CmdResult<String> {
+    const CATEGORIES: &[&str] = &["cards", "relics", "powers", "potions"];
+    if !CATEGORIES.contains(&category.as_str()) {
+        return Err(format!("未知素材类别: {category}"));
+    }
+    if class_name.is_empty() || !class_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(format!("非法类名: {class_name}"));
+    }
+    let src_path = Path::new(&src);
+    let ext = src_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png")
+        .to_ascii_lowercase();
+    let rel = format!("assets/{category}/{class_name}.{ext}");
+    let dst = Path::new(&dir).join(&rel);
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent).map_err(err_str)?;
+    }
+    std::fs::copy(src_path, &dst).map_err(|e| format!("复制图片失败: {e}"))?;
+    Ok(rel)
+}
+
 #[tauri::command]
 fn get_config() -> CmdResult<config::ToolConfig> {
     config::load_global().map_err(|e| format!("{e:#}"))
@@ -108,6 +133,7 @@ fn main() {
             new_project,
             run_step,
             doctor,
+            import_asset,
             get_config,
             set_config
         ])

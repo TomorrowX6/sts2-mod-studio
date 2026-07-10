@@ -155,13 +155,26 @@ pub fn deploy(project_dir: &Path, cfg: &ToolConfig, log: LogFn) -> Result<()> {
     build(project_dir, cfg, log)?;
     pack(project_dir, cfg, log)?;
     if cfg.sts2_dir.is_some() {
-        log("部署完成，启动游戏即可测试。注意 card 指令只能在战斗中使用：");
+        log("部署完成，启动游戏即可测试。获取类指令只能在战斗中使用：");
         let project = Project::load(project_dir)?;
+        let id = &project.manifest.id;
         for card in &project.cards {
             log(&format!(
-                "  战斗中按 ~ 输入: card {}",
-                crate::ids::content_id(&project.manifest.id, "CARD", &card.class_name)
+                "  卡牌: card {}",
+                crate::ids::content_id(id, "CARD", &card.class_name)
             ));
+        }
+        for power in &project.powers {
+            log(&format!(
+                "  能力: power {} 1 0",
+                crate::ids::content_id(id, "POWER", &power.class_name)
+            ));
+        }
+        for relic in &project.relics {
+            log(&format!("  遗物 ID: {}", crate::ids::content_id(id, "RELIC", &relic.class_name)));
+        }
+        for potion in &project.potions {
+            log(&format!("  药水 ID: {}", crate::ids::content_id(id, "POTION", &potion.class_name)));
         }
     } else {
         log("未配置游戏目录，产物在 build/ 下，请手动复制到游戏 mods 文件夹");

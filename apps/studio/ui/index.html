@@ -35,7 +35,7 @@
   </div>
 
   <main id="editor" class="hidden">
-    <section class="panel" id="manifest-panel">
+    <section class="panel" id="sidebar">
       <h3>Mod 清单</h3>
       <div class="grid2">
         <label>ID <input id="m-id" /></label>
@@ -46,56 +46,11 @@
         <label class="checkline"><input type="checkbox" id="m-affects" /> 影响多人玩法</label>
       </div>
       <label>描述 <textarea id="m-description" rows="2"></textarea></label>
-
-      <h3>卡牌 <button id="btn-add-card" class="small">＋ 新建</button></h3>
-      <ul id="card-list"></ul>
+      <div id="content-lists"></div>
     </section>
 
-    <section class="panel" id="card-panel">
-      <h3>卡牌编辑 <button id="btn-del-card" class="small danger">删除此卡</button></h3>
-      <div id="card-form">
-        <div class="grid2">
-          <label>类名（PascalCase）<input id="c-className" /></label>
-          <label>卡池 <input id="c-pool" placeholder="Colorless 或自定义池类名" /></label>
-          <label>类型
-            <select id="c-cardType">
-              <option>Attack</option><option>Skill</option><option>Power</option>
-              <option>Status</option><option>Curse</option>
-            </select>
-          </label>
-          <label>稀有度
-            <select id="c-rarity">
-              <option>Basic</option><option>Common</option><option>Uncommon</option>
-              <option>Rare</option><option>Special</option>
-            </select>
-          </label>
-          <label>目标
-            <select id="c-target">
-              <option>AnyEnemy</option><option>AllEnemies</option>
-              <option>Self</option><option>None</option>
-            </select>
-          </label>
-          <label>耗能 <input id="c-energyCost" type="number" min="0" max="99" /></label>
-          <label>卡图（项目内相对路径）<input id="c-portrait" placeholder="assets/cards/MyCard.png" /></label>
-          <label class="checkline"><input type="checkbox" id="c-show" /> 在图鉴中显示</label>
-        </div>
-
-        <h4>数值（DynamicVars）<button id="btn-add-var" class="small">＋</button></h4>
-        <div id="vars-rows"></div>
-
-        <h4>打出效果（按顺序执行）<button id="btn-add-effect" class="small">＋</button></h4>
-        <div id="effect-rows"></div>
-
-        <h4>文本</h4>
-        <div class="grid2">
-          <label>标题（简中）<input id="t-zhs-title" /></label>
-          <label>Title (EN) <input id="t-en-title" /></label>
-        </div>
-        <label>描述（简中）<textarea id="t-zhs-desc" rows="2" placeholder="造成{Damage:diff()}点伤害。"></textarea></label>
-        <label>Description (EN) <textarea id="t-en-desc" rows="2" placeholder="Deal {Damage:diff()} damage."></textarea></label>
-        <p class="muted">占位符对应数值名：{Damage:diff()} {Block:diff()} {Cards:diff()}…，支持 BBCode 如 [gold]力量[/gold]</p>
-      </div>
-      <p id="no-card" class="muted">左侧选择或新建一张卡牌</p>
+    <section class="panel" id="edit-panel">
+      <p class="muted">左侧选择或新建内容</p>
     </section>
   </main>
 
