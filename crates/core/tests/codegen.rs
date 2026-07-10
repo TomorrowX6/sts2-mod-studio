@@ -96,7 +96,7 @@ fn effects_and_power_vars() {
     assert!(cs.contains("new PowerVar<WeakPower>(2)"));
     assert!(cs.contains("new CardsVar(1)"));
     assert!(cs.contains("await CardPileCmd.Draw(choiceContext, DynamicVars.Cards.IntValue, Owner);"));
-    assert!(cs.contains("await PowerCmd.Apply<WeakPower>(choiceContext, cardPlay.Target!, DynamicVars[\"WeakPower\"].IntValue, Owner, null);"));
+    assert!(cs.contains("await PowerCmd.Apply<WeakPower>(choiceContext, cardPlay.Target!, DynamicVars[\"WeakPower\"].IntValue, Owner.Creature, null);"));
     assert!(cs.contains("Log.Info(\"hi\");"));
     assert!(cs.contains("DynamicVars[\"WeakPower\"].UpgradeValueBy(1);"));
 

@@ -239,13 +239,27 @@ pub fn doctor(project_dir: Option<&Path>, cfg: &ToolConfig) -> Vec<Check> {
                 }),
             }
             let ritsu = root.join("mods").join("STS2-RitsuLib");
+            // 创意工坊订阅版：<steamapps>/workshop/content/<游戏appid>/<条目id>/STS2-RitsuLib.dll
+            let workshop = root
+                .parent()
+                .and_then(|p| p.parent())
+                .map(|steamapps| steamapps.join("workshop").join("content").join("2868840"))
+                .and_then(|content| std::fs::read_dir(content).ok())
+                .and_then(|entries| {
+                    entries
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.path())
+                        .find(|item| item.join("STS2-RitsuLib.dll").is_file())
+                });
             checks.push(Check {
                 name: "RitsuLib".into(),
-                ok: ritsu.exists(),
+                ok: ritsu.exists() || workshop.is_some(),
                 detail: if ritsu.exists() {
                     format!("{}", ritsu.display())
+                } else if let Some(w) = workshop {
+                    format!("创意工坊订阅: {}", w.display())
                 } else {
-                    "mods/STS2-RitsuLib 不存在（游戏内加载 mod 需要，编译不需要）".into()
+                    "mods/STS2-RitsuLib 与创意工坊订阅均不存在（游戏内加载 mod 需要，编译不需要）".into()
                 },
             });
         }
