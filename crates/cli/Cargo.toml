@@ -1,0 +1,14 @@
+[package]
+name = "sts2mod"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "sts2mod"
+path = "src/main.rs"
+
+[dependencies]
+sts2mod-core = { path = "../core" }
+anyhow.workspace = true
+serde_json.workspace = true
+clap = { version = "4", features = ["derive"] }

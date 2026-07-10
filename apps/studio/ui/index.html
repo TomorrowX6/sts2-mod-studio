@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>STS2 Mod Studio</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <strong>STS2 Mod Studio</strong>
+    <button id="btn-open">打开项目…</button>
+    <button id="btn-new">新建项目…</button>
+    <button id="btn-save" disabled>保存</button>
+    <span id="project-path" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="btn-settings">工具链设置</button>
+  </header>
+
+  <div id="settings" class="panel hidden">
+    <h3>工具链设置（全局）</h3>
+    <div class="grid2">
+      <label>游戏目录 <input id="cfg-sts2Dir" placeholder="D:/Steam/steamapps/common/Slay the Spire 2" /></label>
+      <label>Godot 可执行文件 <input id="cfg-godotExe" placeholder="…/Godot_v4.5.1-stable_mono_win64.exe" /></label>
+      <label>dotnet 命令 <input id="cfg-dotnet" placeholder="dotnet（默认）" /></label>
+      <label>pck 架构
+        <select id="cfg-pckArch">
+          <option value="">x86_64（默认）</option>
+          <option value="msil">msil（兼容 mac）</option>
+        </select>
+      </label>
+    </div>
+    <button id="btn-save-config">保存配置</button>
+    <button id="btn-doctor">环境自检</button>
+    <ul id="doctor-result"></ul>
+  </div>
+
+  <main id="editor" class="hidden">
+    <section class="panel" id="manifest-panel">
+      <h3>Mod 清单</h3>
+      <div class="grid2">
+        <label>ID <input id="m-id" /></label>
+        <label>名称 <input id="m-name" /></label>
+        <label>作者 <input id="m-author" /></label>
+        <label>版本 <input id="m-version" placeholder="0.1.0" /></label>
+        <label>最低游戏版本 <input id="m-minGameVersion" placeholder="0.107.1" /></label>
+        <label class="checkline"><input type="checkbox" id="m-affects" /> 影响多人玩法</label>
+      </div>
+      <label>描述 <textarea id="m-description" rows="2"></textarea></label>
+
+      <h3>卡牌 <button id="btn-add-card" class="small">＋ 新建</button></h3>
+      <ul id="card-list"></ul>
+    </section>
+
+    <section class="panel" id="card-panel">
+      <h3>卡牌编辑 <button id="btn-del-card" class="small danger">删除此卡</button></h3>
+      <div id="card-form">
+        <div class="grid2">
+          <label>类名（PascalCase）<input id="c-className" /></label>
+          <label>卡池 <input id="c-pool" placeholder="Colorless 或自定义池类名" /></label>
+          <label>类型
+            <select id="c-cardType">
+              <option>Attack</option><option>Skill</option><option>Power</option>
+              <option>Status</option><option>Curse</option>
+            </select>
+          </label>
+          <label>稀有度
+            <select id="c-rarity">
+              <option>Basic</option><option>Common</option><option>Uncommon</option>
+              <option>Rare</option><option>Special</option>
+            </select>
+          </label>
+          <label>目标
+            <select id="c-target">
+              <option>AnyEnemy</option><option>AllEnemies</option>
+              <option>Self</option><option>None</option>
+            </select>
+          </label>
+          <label>耗能 <input id="c-energyCost" type="number" min="0" max="99" /></label>
+          <label>卡图（项目内相对路径）<input id="c-portrait" placeholder="assets/cards/MyCard.png" /></label>
+          <label class="checkline"><input type="checkbox" id="c-show" /> 在图鉴中显示</label>
+        </div>
+
+        <h4>数值（DynamicVars）<button id="btn-add-var" class="small">＋</button></h4>
+        <div id="vars-rows"></div>
+
+        <h4>打出效果（按顺序执行）<button id="btn-add-effect" class="small">＋</button></h4>
+        <div id="effect-rows"></div>
+
+        <h4>文本</h4>
+        <div class="grid2">
+          <label>标题（简中）<input id="t-zhs-title" /></label>
+          <label>Title (EN) <input id="t-en-title" /></label>
+        </div>
+        <label>描述（简中）<textarea id="t-zhs-desc" rows="2" placeholder="造成{Damage:diff()}点伤害。"></textarea></label>
+        <label>Description (EN) <textarea id="t-en-desc" rows="2" placeholder="Deal {Damage:diff()} damage."></textarea></label>
+        <p class="muted">占位符对应数值名：{Damage:diff()} {Block:diff()} {Cards:diff()}…，支持 BBCode 如 [gold]力量[/gold]</p>
+      </div>
+      <p id="no-card" class="muted">左侧选择或新建一张卡牌</p>
+    </section>
+  </main>
+
+  <footer id="pipeline" class="hidden">
+    <div class="toolbar">
+      <button id="btn-generate">生成代码</button>
+      <button id="btn-build">生成+编译</button>
+      <button id="btn-pack">导出 pck</button>
+      <button id="btn-deploy" class="primary">一键部署</button>
+      <span id="busy" class="muted hidden">运行中…</span>
+    </div>
+    <pre id="log"></pre>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
