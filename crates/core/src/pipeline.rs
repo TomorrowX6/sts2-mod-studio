@@ -192,6 +192,24 @@ pub fn deploy(project_dir: &Path, cfg: &ToolConfig, log: LogFn) -> Result<()> {
         for potion in &project.potions {
             log(&format!("  药水 ID: {}", crate::ids::content_id(id, "POTION", &potion.class_name)));
         }
+        for enc in &project.encounters {
+            log(&format!(
+                "  遭遇（地图任意节点可用）: fight {}",
+                crate::ids::content_id(id, "ENCOUNTER", &enc.class_name)
+            ));
+        }
+        for ev in &project.events {
+            log(&format!(
+                "  事件（地图任意节点可用）: event {}",
+                crate::ids::content_id(id, "EVENT", &ev.class_name)
+            ));
+        }
+        for ch in &project.characters {
+            log(&format!(
+                "  人物: 选人界面直接选择（ID: {}）",
+                crate::ids::content_id(id, "CHARACTER", &ch.class_name)
+            ));
+        }
     } else {
         log("未配置游戏目录，产物在 build/ 下，请手动复制到游戏 mods 文件夹");
     }

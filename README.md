@@ -111,6 +111,26 @@ MyMod/
 - 所有内容都有 `extraCode` 逃生舱：原样插入类体，可重写白名单外的任意钩子
 - 触发器白名单外的钩子名会在生成时报错（防止拼错静默失效）
 
+M4 新增 **怪物 / 遭遇 / 事件 / 人物**（`monsters` / `encounters` / `events` / `characters` 数组）：
+
+- **怪物**：血量区间、招式列表（意图 `attack`/`defend`/`custom` + 效果 + 每招标题/对白），
+  招式按顺序循环（`ModMonsterMoveStateMachines.Cycle`）。战斗场景用内置 tscn 模板 +
+  你的图片自动生成（含 Visuals/Bounds/IntentPos/CenterPos/TalkPos 唯一名节点），
+  也可用 `scene` 指定自制场景。怪物没有 DynamicVars，效果数值须填固定值。
+- **遭遇**：房间类型（Monster/Elite/Boss）、注册到幕（`Overgrowth`/`Hive`/`Glory`，
+  不选则 `[RegisterGlobalEncounter]`）、弱怪池标记、出场怪物列表。多怪自动生成
+  Marker2D 槽位场景（每排 4 个，槽位名可自定义）。控制台 `fight <遭遇ID>` 可直接进入。
+- **事件**：多页面状态机——第一页固定 `INITIAL`，选项执行效果后跳到下一页，
+  无选项的页面即结束页；`condition` 生成 `IsAllowed`。事件专用积木：
+  `loseGold` / `rewardCards` / `rewardPotion` / `startCombat`（战斗事件自动补
+  `LayoutType.Combat` 与 `CanonicalEncounter`）。控制台 `event <事件ID>` 可直接进入。
+- **人物**：向导式——主题色、性别、血量金币、初始卡组/遗物（引用本项目内容）、
+  七类图片。自动生成三件套卡池/遗物池/药水池（`{类名}CardPool` 等，把卡牌的"池"
+  字段填成它即可入池），未提供的资源经 `CharacterAssetProfiles.Merge` 回退到所选
+  原版人物（铁甲/静默/缺陷/摄政/缚灵）。战斗模型、能量表盘、头像、选人背景四个
+  tscn 场景由模板生成；`characters.json` 人称代词按性别给默认值；先古对话
+  `ancients.json` 生成占位文本（发布前建议润色）。
+
 ## 桌面应用
 
 ```bash
@@ -121,7 +141,28 @@ cargo run -p sts2mod-studio
 工具链设置存全局配置（`~/.config/sts2mod/config.json` 或 `%APPDATA%/sts2mod`），
 项目目录下可用 `sts2mod.local.json` 覆盖。
 
-## 验证状态（2026-07-10，Linux 开发机）
+## 验证状态（2026-07-11，Linux 开发机）
+
+M4（怪物/遭遇/事件/人物）已在无游戏环境验证：
+
+- 模板类与辅助 API 全部对 RitsuLib 0.4.54 反编译核对：`ModMonsterTemplate` /
+  `ModEncounterTemplate` / `ModEventTemplate` / `ModCharacterTemplate<,,>`、
+  `MonsterAssetProfile` / `EncounterAssetProfile` / `EventAssetProfile`、
+  `ModMonsterMoveStateMachines.Cycle`、`CharacterAssetProfiles.Merge/Ironclad/...`、
+  `TypeList*PoolModel`、`StartingDeckEntry`、`InitialOptionKey/ModOptionKey/PageDescription`、
+  五个注册属性、幕类型 `Overgrowth/Hive/Glory`，签名全部一致
+- 生成工程 stub 编译（无 sts2.dll）：报错全部指向缺失的 sts2.dll，无 RitsuLib 误用
+- 怪物移动/事件页面等 C# 结构逐行对照官方教程原文
+
+M4 待真机确认的推断点：
+
+- 遭遇本地化键推断为 `{MOD}_ENCOUNTER_{类名}.title/.loss`（教程该节疑似未更新，
+  若游戏内不显示标题请反馈）
+- `RoomType.Elite` / `RoomType.Boss` 枚举名、`CharacterGender.Feminine/Neutral` 枚举名
+- 怪物招式中 `applyPower` 给目标用 `targets[0]`（教程未覆盖，仅验证了给自己）
+- 先古对话 `THE_ARCHITECT.*-attack` 键名的前缀形式
+
+## 早期验证状态（2026-07-10，Linux 开发机）
 
 无游戏本体的环境下已验证：
 
@@ -145,5 +186,5 @@ cargo run -p sts2mod-studio
 - [x] M1 流水线打通：项目格式、卡牌代码生成、CLI、最小 UI（已在真机游戏内验证）
 - [x] M2 遗物 / 能力 / 药水编辑器、图片一键导入、extraCode 逃生舱
 - [x] M3 效果积木扩展：8 种新积木（格挡/治疗/直伤/金币/音效/特效/条件/循环，支持嵌套）、能力新触发器
-- [ ] M4 怪物 / 遭遇 / 事件 / 人物向导（内置 tscn 模板）
+- [x] M4 怪物 / 遭遇 / 事件 / 人物向导（内置 tscn 模板、事件多页面、人物三池自动生成）
 - [ ] M5 工坊上传（对接官方 sts2-mod-uploader）、导入已有 mod

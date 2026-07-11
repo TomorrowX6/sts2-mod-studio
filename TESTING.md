@@ -273,3 +273,154 @@ cargo run --release -p sts2mod-studio
 4. `PlayerCmd.GainGold(n, Owner)` 在卡牌上下文中 `Owner` 是否是 `Player` 类型
 5. 能力触发器 `AfterSideTurnEnd` + `Owner.Side` 守卫（签名来自反编译，应当稳）
 6. VFX 路径（`vfx/vfx_bloody_impact` 等来自教程特效清单，路径无效顶多不显示，不会崩）
+
+---
+
+# M4 增量测试（怪物 / 遭遇 / 事件 / 人物）
+
+在上面 StudioTest 项目验证通过后进行。预计 15 分钟。
+
+## 8. 追加 M4 测试内容
+
+在 `project.stsmod.json` 顶层（`potions` 之后）追加四个数组：
+
+```json
+  "monsters": [
+    {
+      "className": "TrainingDummy",
+      "minHp": 15,
+      "maxHp": 20,
+      "moves": [
+        {
+          "name": "BASIC_ATTACK",
+          "intents": [{ "kind": "attack", "amount": 3 }, { "kind": "defend" }],
+          "effects": [{ "op": "damage", "amount": 3 }, { "op": "block", "amount": 8 }],
+          "title": { "zhs": "基础攻击" },
+          "banter": { "zhs": "[jitter]接下这招！[/jitter]" }
+        },
+        {
+          "name": "HEAVY_ATTACK",
+          "intents": [{ "kind": "attack", "amount": 6 }],
+          "effects": [{ "op": "damage", "amount": 6 }],
+          "title": { "zhs": "重击" }
+        }
+      ],
+      "text": { "zhs": { "name": "训练假人" } }
+    }
+  ],
+  "encounters": [
+    {
+      "className": "DummyEncounter",
+      "acts": ["Glory"],
+      "roomType": "Monster",
+      "monsters": [{ "monster": "TrainingDummy" }],
+      "text": { "zhs": { "title": "一只假人", "loss": "{character}被[gold]{encounter}[/gold]击败。" } }
+    },
+    {
+      "className": "DummyPair",
+      "acts": ["Glory"],
+      "roomType": "Monster",
+      "cameraScaling": 0.9,
+      "monsters": [
+        { "monster": "TrainingDummy", "slot": "left" },
+        { "monster": "TrainingDummy" }
+      ],
+      "text": { "zhs": { "title": "两只假人" } }
+    }
+  ],
+  "events": [
+    {
+      "className": "DummyMeeting",
+      "acts": ["Glory"],
+      "vars": [
+        { "kind": "Damage", "value": 10, "props": ["Unblockable", "Unpowered"] },
+        { "kind": "Gold", "value": 60 }
+      ],
+      "pages": [
+        {
+          "key": "INITIAL",
+          "description": { "zhs": "岔路口摆着一只训练假人。" },
+          "options": [
+            {
+              "key": "TAKE_DAMAGE",
+              "title": { "zhs": "挨一下" },
+              "description": { "zhs": "受到[red]{Damage}[/red]点伤害。" },
+              "effects": [{ "op": "directDamage", "var": "Damage", "toSelf": true }],
+              "goto": "REWARD"
+            },
+            {
+              "key": "LOSE_GOLD",
+              "title": { "zhs": "交过路费" },
+              "description": { "zhs": "失去[gold]{Gold}[/gold]金币。" },
+              "effects": [{ "op": "loseGold", "var": "Gold" }],
+              "goto": "REWARD"
+            },
+            {
+              "key": "FIGHT",
+              "title": { "zhs": "拆了它" },
+              "effects": [{ "op": "startCombat", "encounter": "DummyEncounter" }]
+            }
+          ]
+        },
+        {
+          "key": "REWARD",
+          "description": { "zhs": "假人肚子里掉出些东西。" },
+          "options": [
+            {
+              "key": "CHOOSE_CARDS",
+              "title": { "zhs": "挑张牌" },
+              "effects": [{ "op": "rewardCards", "count": 3 }],
+              "goto": "DONE"
+            },
+            {
+              "key": "CHOOSE_POTION",
+              "title": { "zhs": "拿瓶药" },
+              "effects": [{ "op": "rewardPotion" }],
+              "goto": "DONE"
+            }
+          ]
+        },
+        { "key": "DONE", "description": { "zhs": "你继续上路。" } }
+      ],
+      "title": { "zhs": "路边假人" }
+    }
+  ],
+  "characters": [
+    {
+      "className": "Trainee",
+      "color": "#8080FF",
+      "gender": "Neutral",
+      "startingHp": 80,
+      "startingGold": 99,
+      "base": "Ironclad",
+      "startingDeck": [{ "card": "KitchenSink", "count": 5 }],
+      "startingRelics": ["TurnEngine"],
+      "text": { "zhs": { "title": "见习者", "description": "只带一张万事卡闯塔的人。" } }
+    }
+  ]
+```
+
+然后 `sts2mod deploy`。预期额外打印 `fight STUDIO_TEST_ENCOUNTER_DUMMY_ENCOUNTER`、
+`event STUDIO_TEST_EVENT_DUMMY_MEETING` 等指令。
+
+## 9. 游戏内验证清单（M4）
+
+开一局（先用原版人物）→ 控制台：
+
+| # | 指令 | 期望表现 |
+|---|------|----------|
+| 9 | `fight STUDIO_TEST_ENCOUNTER_DUMMY_ENCOUNTER` | 进入战斗：假人 15~20 血、头顶意图"攻击3+盾"；它出招时说话（蓝字对白）、打你 3 点、自己+8 格挡；下回合意图变"攻击6"，两招循环 |
+| 10 | `fight STUDIO_TEST_ENCOUNTER_DUMMY_PAIR` | 两只假人分列两个位置（自动槽位场景），战斗正常 |
+| 11 | `event STUDIO_TEST_EVENT_DUMMY_MEETING` | 事件标题/描述/三个选项文本正常；"挨一下"扣 10 血进入第二页；"挑张牌"出 3 选 1 卡牌奖励后事件结束；"拆了它"直接进战斗 |
+| 12 | 战斗中查看击败文本 | 被假人打死时死亡结算文本显示遭遇 loss 文案（**若标题/loss 不显示，遭遇本地化键推断有误，请反馈**） |
+| 13 | 重开一局，选人界面 | 出现"见习者"：名字为主题色、选人背景为深蓝纯色、描述正常；开局 5 张 KitchenSink + TurnEngine 遗物、80 血 99 金币 |
+| 14 | 用见习者进商店/篝火/先古之民 | 商店与篝火模型回退为铁甲战士；先古对话显示占位文本（"……"）不报错 |
+
+## 10. M4 重点观察点（推断而非验证的表达式）
+
+1. 遭遇本地化键 `{MOD}_ENCOUNTER_*.title/.loss`（教程该节疑似未更新成 RitsuLib 格式）
+2. `RoomType.Elite` / `RoomType.Boss`（本轮只测了 Monster，若做精英/Boss 遭遇需确认枚举名）
+3. `CharacterGender.Feminine` / `Neutral` 枚举名（本轮 Neutral 直接覆盖）
+4. 怪物招式 `applyPower` 给目标时的 `targets[0]`（本轮测试项未覆盖，自定义怪物用到时留意）
+5. 先古对话 `THE_ARCHITECT.talk.<类名蛇形>.N-attack` 键的前缀形式（占位文本若不生效会显示键名）
+6. 事件 `CreatureCmd.Damage(ctx, creature, DynamicVars.X, null, null)` 单目标重载（教程原文，应当稳）
