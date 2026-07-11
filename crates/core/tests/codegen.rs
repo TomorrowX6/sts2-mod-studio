@@ -21,6 +21,7 @@ fn starter_project_generates_expected_tree() {
     for expected in [
         "Test.json",
         "Test.csproj",
+        "Test.sln",
         "project.godot",
         "export_presets.cfg",
         "Scripts/Entry.cs",
@@ -65,6 +66,11 @@ fn starter_project_generates_expected_tree() {
     assert!(csproj.contains("Godot.NET.Sdk/4.5.1"));
     assert!(csproj.contains("sts2.dll"));
     assert!(csproj.contains("STS2.RitsuLib"));
+
+    // Godot Mono 导出要求项目根目录存在同名 solution。
+    let solution = file(&out, "Test.sln");
+    assert!(solution.contains("\"Test\", \"Test.csproj\""));
+    assert!(solution.contains("Debug|Any CPU"));
 
     // 无卡图 → 有警告
     assert!(out.warnings.iter().any(|w| w.contains("未设置图片")));

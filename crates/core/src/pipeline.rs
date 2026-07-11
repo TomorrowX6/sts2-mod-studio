@@ -140,7 +140,23 @@ pub fn pack(project_dir: &Path, cfg: &ToolConfig, log: LogFn) -> Result<PathBuf>
         // 与官方 mod 模板一致：阻止导出钩子递归触发构建
         .env("IsInnerGodotExport", "true")
         .env("MSBUILDDISABLENODEREUSE", "1");
-    run_streamed(cmd, log).context("godot 导出 pck 失败")?;
+    // Godot 的内部 dotnet publish 也需要游戏程序集引用路径。
+    if let Some(dir) = &cfg.sts2_dir {
+        cmd.env("Sts2Dir", dir);
+    }
+
+    // Godot 某些导出错误仍会返回退出码 0，不能只依赖进程状态。
+    let mut saw_error = false;
+    {
+        let mut export_log = |line: &str| {
+            saw_error |= line.starts_with("ERROR:");
+            log(line);
+        };
+        run_streamed(cmd, &mut export_log).context("godot 导出 pck 失败")?;
+    }
+    if saw_error {
+        bail!("godot 导出日志包含错误，pck 不可用");
+    }
     if !dest.exists() {
         bail!("godot 声称完成但未找到 {}", dest.display());
     }

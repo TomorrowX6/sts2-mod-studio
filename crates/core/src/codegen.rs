@@ -4,6 +4,7 @@
 //! ```text
 //! build/godot/
 //! ├── {id}.csproj
+//! ├── {id}.sln
 //! ├── {id}.json              (游戏 mod 清单)
 //! ├── project.godot
 //! ├── export_presets.cfg
@@ -66,6 +67,10 @@ pub fn generate(project: &Project) -> Result<GenOutput> {
     files.push(GeneratedFile {
         rel_path: format!("{id}.csproj").into(),
         content: csproj(id),
+    });
+    files.push(GeneratedFile {
+        rel_path: format!("{id}.sln").into(),
+        content: solution(id),
     });
     files.push(GeneratedFile {
         rel_path: "project.godot".into(),
@@ -208,6 +213,33 @@ fn csproj(id: &str) -> String {
     <Copy SourceFiles="$(MSBuildProjectDirectory)/{id}.json" DestinationFolder="$(Sts2Dir)/mods/{id}/" />
   </Target>
 </Project>
+"#
+    )
+}
+
+fn solution(id: &str) -> String {
+    format!(
+        r#"Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}}") = "{id}", "{id}.csproj", "{{A7611677-F3D4-46B1-AC17-E9908C2EF7AD}}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{{A7611677-F3D4-46B1-AC17-E9908C2EF7AD}}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{{A7611677-F3D4-46B1-AC17-E9908C2EF7AD}}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{{A7611677-F3D4-46B1-AC17-E9908C2EF7AD}}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{{A7611677-F3D4-46B1-AC17-E9908C2EF7AD}}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
 "#
     )
 }
