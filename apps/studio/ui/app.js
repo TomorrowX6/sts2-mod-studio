@@ -29,7 +29,7 @@ function chip(icon, color) {
 
 const $ = (id) => document.getElementById(id);
 const VAR_KINDS = ["Damage", "Block", "Cards", "Energy", "Repeat", "Heal", "HpLoss",
-  "MaxHp", "Gold", "Stars", "Summon", "Forge", "Power"];
+  "MaxHp", "Gold", "Stars", "Summon", "Forge", "Power", "Custom"];
 const LANGS = ["zhs", "en"];
 const LANG_LABEL = { zhs: "简中", en: "EN" };
 const ACTS = ["Overgrowth", "Hive", "Glory"];
@@ -205,6 +205,7 @@ function autoSelectFirst() {
 async function saveProject() {
   if (!state.dir) return;
   collectManifest();
+  pruneEmptyTexts();
   try {
     await invoke("save_project", { dir: state.dir, project: state.project });
     logLine("已保存 " + state.dir + "/project.stsmod.json");
@@ -283,6 +284,7 @@ function renderAll() {
   renderNav();
   renderItemList();
   renderEditor();
+  renderProjectExtras();
   applyView();
 }
 
@@ -486,6 +488,21 @@ function renderEditor() {
     panel.appendChild(assetPickRow(item, cfg.assetField, cfg.assetCategory, item.className, "图片（项目内相对路径）"));
   }
 
+  // 卡牌专属：关键词 / 标签 / 悬浮提示
+  if (kind === "cards") {
+    const g = document.createElement("div");
+    g.className = "grid2";
+    const listInput = (label, field, placeholder) => {
+      g.appendChild(labeled(label, textInput((item[field] || []).join(", "),
+        (v) => item[field] = v.split(",").map(s => s.trim()).filter(Boolean), placeholder)));
+    };
+    listInput("关键词（逗号分隔）", "keywords", "Exhaust 或项目页定义的自定义关键词");
+    listInput("标签（逗号分隔）", "tags", "Strike, Defend 或自定义标签");
+    listInput("悬浮提示·卡牌（本项目类名）", "hoverTipCards", "OtherCard");
+    listInput("悬浮提示·能力（本项目类名）", "hoverTipPowers", "MyPower");
+    panel.appendChild(g);
+  }
+
   // 数值
   if (cfg.hasVars) {
     panel.appendChild(sectionHeader("数值（DynamicVars）", () => {
@@ -619,13 +636,109 @@ function renderVarRows(box, item) {
     if (v.kind === "Power") {
       row.appendChild(labeled("能力类名", textInput(v.power || "", (val) => v.power = val, "StrengthPower")));
     }
+    if (v.kind === "Custom") {
+      row.appendChild(labeled("变量名", textInput(v.name || "", (val) => v.name = val.trim(), "Leech（描述里 {Leech}）")));
+    }
     row.appendChild(labeled("数值", numInput(v.value, (val) => v.value = val), "narrow"));
     row.appendChild(labeled("升级+", numInput(v.upgrade || 0, (val) => v.upgrade = val), "narrow"));
-    row.appendChild(labeled("属性(逗号分隔)", textInput((v.props || []).join(","),
-      (val) => v.props = val.split(",").map(s => s.trim()).filter(Boolean), "Move,Unblockable")));
+    if (v.kind !== "Custom") {
+      row.appendChild(labeled("属性(逗号分隔)", textInput((v.props || []).join(","),
+        (val) => v.props = val.split(",").map(s => s.trim()).filter(Boolean), "Move,Unblockable")));
+    }
     row.appendChild(delBtn(() => { item.vars.splice(i, 1); renderEditor(); }));
     box.appendChild(row);
+
+    // 自定义变量的悬浮提示文本（生成 static_hover_tips.json + WithSharedTooltip）
+    if (v.kind === "Custom") {
+      const tipBox = document.createElement("div");
+      tipBox.className = "nested-box";
+      const head = document.createElement("div");
+      head.className = "nested-head muted";
+      head.textContent = "悬浮提示（留空则不生成关键词说明）";
+      tipBox.appendChild(head);
+      v.tooltip = v.tooltip || {};
+      for (const lang of LANGS) {
+        v.tooltip[lang] = v.tooltip[lang] || { title: "", description: "" };
+        const t = v.tooltip[lang];
+        const r = document.createElement("div");
+        r.className = "row";
+        r.appendChild(labeled(`标题（${LANG_LABEL[lang]}）`, textInput(t.title, (val) => t.title = val)));
+        r.appendChild(labeled(`说明（${LANG_LABEL[lang]}）`, textInput(t.description, (val) => t.description = val)));
+        tipBox.appendChild(r);
+      }
+      box.appendChild(tipBox);
+    }
   });
+}
+
+/// 保存前清理：UI 为编辑方便创建的空 tooltip/文本条目不落盘。
+function pruneEmptyTexts() {
+  const emptyText = (t) => !(t?.title || "").trim() && !(t?.description || "").trim();
+  for (const c of state.project.cards || []) {
+    for (const v of c.vars || []) {
+      if (!v.tooltip) continue;
+      for (const lang of Object.keys(v.tooltip)) {
+        if (emptyText(v.tooltip[lang])) delete v.tooltip[lang];
+      }
+      if (!Object.keys(v.tooltip).length) delete v.tooltip;
+    }
+  }
+  for (const kw of state.project.keywords || []) {
+    for (const lang of Object.keys(kw.text || {})) {
+      if (emptyText(kw.text[lang])) delete kw.text[lang];
+    }
+  }
+}
+
+// ---------- 项目页扩展：自定义关键词 / 卡牌标签 ----------
+
+function renderProjectExtras() {
+  const host = $("project-extras");
+  if (!host || !state.project) return;
+  host.innerHTML = "";
+
+  const card = document.createElement("div");
+  card.className = "card";
+  card.appendChild(sectionHeader("自定义卡牌关键词（消耗/虚无这类属性，卡牌里按名称引用）", () => {
+    state.project.keywords = state.project.keywords || [];
+    state.project.keywords.push({
+      name: "NewKeyword" + (state.project.keywords.length + 1),
+      placement: "BeforeCardDescription",
+      text: { zhs: { title: "新关键词", description: "关键词说明。" } },
+    });
+    renderProjectExtras();
+  }));
+  (state.project.keywords = state.project.keywords || []).forEach((kw, i) => {
+    const box = document.createElement("div");
+    box.className = "trigger-box";
+    const head = document.createElement("div");
+    head.className = "row";
+    head.appendChild(labeled("标识（PascalCase）", textInput(kw.name, (v) => kw.name = v.trim(), "Unique")));
+    head.appendChild(labeled("描述插入位置", select(
+      ["BeforeCardDescription", "AfterCardDescription", "None"],
+      kw.placement || "BeforeCardDescription", (v) => kw.placement = v)));
+    head.appendChild(delBtn(() => { state.project.keywords.splice(i, 1); renderProjectExtras(); }));
+    box.appendChild(head);
+    box.appendChild(assetPickRow(kw, "icon", "keywords", kw.name, "图标（可空）"));
+    kw.text = kw.text || {};
+    for (const lang of LANGS) {
+      kw.text[lang] = kw.text[lang] || { title: "", description: "" };
+      const t = kw.text[lang];
+      const r = document.createElement("div");
+      r.className = "row";
+      r.appendChild(labeled(`标题（${LANG_LABEL[lang]}）`, textInput(t.title, (v) => t.title = v)));
+      r.appendChild(labeled(`说明（${LANG_LABEL[lang]}）`, textInput(t.description, (v) => t.description = v)));
+      box.appendChild(r);
+    }
+    card.appendChild(box);
+  });
+
+  card.appendChild(sectionHeader("自定义卡牌标签（打击木偶等按标签判定）", null));
+  card.appendChild(labeled("标签名（逗号分隔，PascalCase）", textInput(
+    (state.project.cardTags || []).join(", "),
+    (v) => state.project.cardTags = v.split(",").map(s => s.trim()).filter(Boolean),
+    "Heavy, Combo")));
+  host.appendChild(card);
 }
 
 function renderEffectRows(box, effects, allowedOps, opts = {}) {
@@ -1154,6 +1267,7 @@ window.addEventListener("DOMContentLoaded", () => {
   applyView();
   loadConfig();
 });
+
 
 
 

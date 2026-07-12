@@ -93,7 +93,7 @@ fn doctor(dir: Option<String>) -> CmdResult<Vec<CheckDto>> {
 /// 把用户选择的图片复制进项目 assets/{category}/{ClassName}.{ext}，返回相对路径。
 #[tauri::command]
 fn import_asset(dir: String, category: String, class_name: String, src: String) -> CmdResult<String> {
-    const CATEGORIES: &[&str] = &["cards", "relics", "powers", "potions", "monsters", "events", "characters", "workshop"];
+    const CATEGORIES: &[&str] = &["cards", "relics", "powers", "potions", "monsters", "events", "characters", "workshop", "keywords"];
     if !CATEGORIES.contains(&category.as_str()) {
         return Err(format!("未知素材类别: {category}"));
     }

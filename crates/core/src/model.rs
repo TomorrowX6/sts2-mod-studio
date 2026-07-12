@@ -34,9 +34,37 @@ pub struct Project {
     pub events: Vec<EventDef>,
     #[serde(default)]
     pub characters: Vec<CharacterDef>,
+    /// 自定义卡牌关键词（如"唯一"——消耗/虚无这类卡牌属性）。
+    #[serde(default)]
+    pub keywords: Vec<KeywordDef>,
+    /// 自定义卡牌标签名（PascalCase，如 Heavy；打击木偶等按 tag 判定）。
+    #[serde(default)]
+    pub card_tags: Vec<String>,
     /// 创意工坊发布信息（`sts2mod publish` 用）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workshop: Option<WorkshopDef>,
+}
+
+/// 自定义卡牌关键词（RegisterOwnedCardKeyword）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeywordDef {
+    /// 标识（PascalCase，如 Unique），卡牌里按此名引用。
+    pub name: String,
+    /// 描述前的小图标（可空）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// 关键词文本插入卡牌描述的位置：
+    /// None / BeforeCardDescription / AfterCardDescription。
+    #[serde(default = "default_placement")]
+    pub placement: String,
+    /// 语言代码 → { title, description }。
+    #[serde(default)]
+    pub text: BTreeMap<String, CardText>,
+}
+
+fn default_placement() -> String {
+    "BeforeCardDescription".into()
 }
 
 /// 创意工坊发布配置。对应官方 ModUploader 的 workshop.json——
@@ -122,6 +150,17 @@ pub struct CardDef {
     /// 本地化文本：语言代码（zhs / en / ...）→ 文本。
     #[serde(default)]
     pub text: BTreeMap<String, CardText>,
+    /// 卡牌关键词：原版名（如 Exhaust）或本项目自定义关键词名。
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    /// 卡牌标签：原版名（如 Strike / Defend）或本项目自定义 tag 名。
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// 悬浮提示：展示本项目其他卡牌 / 能力（引用类名）。
+    #[serde(default)]
+    pub hover_tip_cards: Vec<String>,
+    #[serde(default)]
+    pub hover_tip_powers: Vec<String>,
     /// 逃生舱：原样插入类体的 C# 代码（额外字段、钩子重写等）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_code: Option<String>,
@@ -485,11 +524,19 @@ fn default_card_count() -> i64 {
 #[serde(rename_all = "camelCase")]
 pub struct VarDef {
     /// Damage / Block / Cards / Energy / Repeat / Heal / HpLoss / MaxHp /
-    /// Gold / Stars 等标准种类，或 "Power"（配合 `power` 字段）。
+    /// Gold / Stars 等标准种类，"Power"（配合 `power` 字段），
+    /// 或 "Custom"（配合 `name` 字段，生成 ModCardVars.Int）。
     pub kind: String,
     /// kind = "Power" 时的能力类名，如 StrengthPower。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub power: Option<String>,
+    /// kind = "Custom" 时的变量名（PascalCase，如 Leech），描述里 {Leech} 引用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// kind = "Custom" 时的悬浮提示文本（语言 → {title, description}）。
+    /// 非空时生成 WithSharedTooltip 与 static_hover_tips.json。
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tooltip: BTreeMap<String, CardText>,
     pub value: i64,
     /// ValueProp 组合：Move / Unpowered / Unblockable / SkipHurtAnim。
     /// 为空时 Damage/Block 默认 Move。
@@ -683,6 +730,15 @@ impl Project {
                 if v.kind == "Power" && v.power.is_none() {
                     bail!("{label} {class_name}: kind=Power 的数值必须填 power 字段");
                 }
+                if v.kind == "Custom" {
+                    match &v.name {
+                        Some(n) if is_pascal_case_ident(n) => {}
+                        Some(n) => bail!(
+                            "{label} {class_name}: 自定义数值名必须是 PascalCase（当前: {n}）"
+                        ),
+                        None => bail!("{label} {class_name}: kind=Custom 的数值必须填 name 字段"),
+                    }
+                }
             }
             Ok(())
         };
@@ -711,7 +767,70 @@ impl Project {
             check("人物", &c.class_name, &[])?;
         }
         self.validate_workshop()?;
+        self.validate_keywords_tags()?;
         self.validate_m4()
+    }
+
+    /// 自定义关键词 / 标签及卡牌上的引用。
+    fn validate_keywords_tags(&self) -> Result<()> {
+        let mut kw_names = std::collections::HashSet::new();
+        for kw in &self.keywords {
+            if !is_pascal_case_ident(&kw.name) {
+                bail!("关键词名必须是 PascalCase（当前: {}）", kw.name);
+            }
+            if !kw_names.insert(kw.name.as_str()) {
+                bail!("关键词名重复: {}", kw.name);
+            }
+            const PLACEMENTS: &[&str] = &["None", "BeforeCardDescription", "AfterCardDescription"];
+            if !PLACEMENTS.contains(&kw.placement.as_str()) {
+                bail!(
+                    "关键词 {}: placement 必须是 {} 之一（当前: {}）",
+                    kw.name, PLACEMENTS.join("/"), kw.placement
+                );
+            }
+        }
+        let mut tag_names = std::collections::HashSet::new();
+        for t in &self.card_tags {
+            if !is_pascal_case_ident(t) {
+                bail!("卡牌标签名必须是 PascalCase（当前: {t}）");
+            }
+            if !tag_names.insert(t.as_str()) {
+                bail!("卡牌标签名重复: {t}");
+            }
+        }
+        let card_names: std::collections::HashSet<&str> =
+            self.cards.iter().map(|c| c.class_name.as_str()).collect();
+        let power_names: std::collections::HashSet<&str> =
+            self.powers.iter().map(|p| p.class_name.as_str()).collect();
+        for c in &self.cards {
+            for k in &c.keywords {
+                if !is_pascal_case_ident(k) {
+                    bail!("卡牌 {}: 关键词名必须是 PascalCase（当前: {k}）", c.class_name);
+                }
+            }
+            for t in &c.tags {
+                if !is_pascal_case_ident(t) {
+                    bail!("卡牌 {}: 标签名必须是 PascalCase（当前: {t}）", c.class_name);
+                }
+            }
+            for r in &c.hover_tip_cards {
+                if !card_names.contains(r.as_str()) {
+                    bail!(
+                        "卡牌 {}: 悬浮提示引用了不存在的卡牌 {r}（仅支持本项目卡牌，原版内容请用 extraCode）",
+                        c.class_name
+                    );
+                }
+            }
+            for r in &c.hover_tip_powers {
+                if !power_names.contains(r.as_str()) {
+                    bail!(
+                        "卡牌 {}: 悬浮提示引用了不存在的能力 {r}（仅支持本项目能力，原版内容请用 extraCode）",
+                        c.class_name
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     fn validate_workshop(&self) -> Result<()> {
@@ -982,11 +1101,17 @@ pub fn starter_project(id: &str, name: &str) -> Project {
             vars: vec![VarDef {
                 kind: "Damage".into(),
                 power: None,
+                name: None,
+                tooltip: BTreeMap::new(),
                 value: 9,
                 props: vec!["Move".into()],
                 upgrade: 3,
             }],
             on_play: vec![Effect::Damage { var: None, amount: None }],
+            keywords: vec![],
+            tags: vec![],
+            hover_tip_cards: vec![],
+            hover_tip_powers: vec![],
             text,
             extra_code: None,
         }],
@@ -997,6 +1122,8 @@ pub fn starter_project(id: &str, name: &str) -> Project {
         encounters: vec![],
         events: vec![],
         characters: vec![],
+        keywords: vec![],
+        card_tags: vec![],
         workshop: None,
     }
 }

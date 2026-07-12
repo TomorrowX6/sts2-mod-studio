@@ -111,6 +111,26 @@ pub fn generate(project: &Project) -> Result<GenOutput> {
         }
     };
 
+    if !project.keywords.is_empty() {
+        files.push(GeneratedFile {
+            rel_path: "Scripts/ModKeywords.cs".into(),
+            content: keywords_cs(project),
+        });
+        for kw in &project.keywords {
+            if let Some(icon) = &kw.icon {
+                copies.push(AssetCopy {
+                    src_rel: icon.clone(),
+                    dst_rel: format!("{id}/images/keywords/{}.{}", kw.name, ext_of(icon)).into(),
+                });
+            }
+        }
+    }
+    if !project.card_tags.is_empty() {
+        files.push(GeneratedFile {
+            rel_path: "Scripts/ModCardTags.cs".into(),
+            content: card_tags_cs(project),
+        });
+    }
     for card in &project.cards {
         files.push(GeneratedFile {
             rel_path: format!("Scripts/Cards/{}.cs", card.class_name).into(),
@@ -442,20 +462,30 @@ fn var_accessor(name: &str) -> String {
 
 /// 一个 VarDef 在描述占位符 / 代码访问中的名字。
 fn var_name(v: &VarDef) -> String {
-    if v.kind == "Power" {
-        v.power.clone().unwrap_or_default()
-    } else {
-        v.kind.clone()
+    match v.kind.as_str() {
+        "Power" => v.power.clone().unwrap_or_default(),
+        "Custom" => v.name.clone().unwrap_or_default(),
+        _ => v.kind.clone(),
     }
 }
 
-fn var_ctor(v: &VarDef) -> Result<String> {
+fn var_ctor(v: &VarDef, mod_id: &str) -> Result<String> {
     if v.kind == "Power" {
         let power = v.power.as_deref().unwrap_or_default();
         return Ok(format!("new PowerVar<{power}>({})", v.value));
     }
+    if v.kind == "Custom" {
+        // 自定义命名数值（教程"添加新动态变量"一节）：
+        // ModCardVars.Int + 可选 WithSharedTooltip（键与 static_hover_tips.json 对应）
+        let name = v.name.as_deref().unwrap_or_default();
+        let mut expr = format!("ModCardVars.Int(\"{name}\", {})", v.value);
+        if !v.tooltip.is_empty() {
+            expr.push_str(&format!("\n            .WithSharedTooltip(\"{}\")", tooltip_key(mod_id, name)));
+        }
+        return Ok(expr);
+    }
     if !STANDARD_VAR_KINDS.contains(&v.kind.as_str()) {
-        bail!("未知的数值种类: {}（支持: {} 或 Power）", v.kind, STANDARD_VAR_KINDS.join("/"));
+        bail!("未知的数值种类: {}（支持: {}、Power 或 Custom）", v.kind, STANDARD_VAR_KINDS.join("/"));
     }
     let mut props: Vec<String> = v.props.iter().map(|p| format!("ValueProp.{p}")).collect();
     if props.is_empty() && (v.kind == "Damage" || v.kind == "Block") {
@@ -466,6 +496,11 @@ fn var_ctor(v: &VarDef) -> Result<String> {
     } else {
         Ok(format!("new {}Var({}, {})", v.kind, v.value, props.join(" | ")))
     }
+}
+
+/// 自定义数值的悬浮提示键（static_hover_tips.json）。
+fn tooltip_key(mod_id: &str, var_name: &str) -> String {
+    format!("{}_{}", ids::mod_prefix(mod_id), ids::upper_snake(var_name))
 }
 
 /// 效果生成上下文：同一积木在不同宿主（卡牌/遗物/药水/能力/怪物/事件）里可用性与表达式不同。
@@ -789,7 +824,7 @@ fn card_cs(project: &Project, card: &CardDef, warnings: &mut Vec<String>) -> Res
     let mut vars_src = String::new();
     for (i, v) in card.vars.iter().enumerate() {
         let sep = if i + 1 < card.vars.len() { "," } else { "" };
-        writeln!(vars_src, "        {}{sep}", var_ctor(v)?).unwrap();
+        writeln!(vars_src, "        {}{sep}", var_ctor(v, id)?).unwrap();
     }
 
     let has_target = !matches!(card.target.as_str(), "None" | "Self");
@@ -841,6 +876,66 @@ fn card_cs(project: &Project, card: &CardDef, warnings: &mut Vec<String>) -> Res
         )
     };
 
+    // 关键词：本项目自定义的走 ModKeywords，其余按原版 CardKeyword 枚举
+    let keywords_block = if card.keywords.is_empty() {
+        String::new()
+    } else {
+        let items = card
+            .keywords
+            .iter()
+            .map(|k| {
+                if project.keywords.iter().any(|kw| &kw.name == k) {
+                    format!("        ModKeywords.{k}")
+                } else {
+                    format!("        CardKeyword.{k}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(",\n");
+        format!(
+            "\n    // 关键词（消耗/固有等卡牌属性）\n    public override IEnumerable<CardKeyword> CanonicalKeywords => [\n{items}\n    ];\n"
+        )
+    };
+    let tags_block = if card.tags.is_empty() {
+        String::new()
+    } else {
+        let items = card
+            .tags
+            .iter()
+            .map(|t| {
+                if project.card_tags.iter().any(|x| x == t) {
+                    format!("        ModCardTags.{t}")
+                } else {
+                    format!("        CardTag.{t}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(",\n");
+        format!(
+            "\n    // 卡牌标签（打击木偶等按标签判定）\n    protected override HashSet<CardTag> CanonicalTags => [\n{items}\n    ];\n"
+        )
+    };
+    let hover_block = if card.hover_tip_cards.is_empty() && card.hover_tip_powers.is_empty() {
+        String::new()
+    } else {
+        let mut items = Vec::new();
+        for c in &card.hover_tip_cards {
+            items.push(format!("        HoverTipFactory.FromCard<{c}>()"));
+        }
+        for p in &card.hover_tip_powers {
+            items.push(format!("        HoverTipFactory.FromPower<{p}>()"));
+        }
+        format!(
+            "\n    // 额外悬浮提示（旁侧预览卡牌 / 能力说明）\n    protected override IEnumerable<IHoverTip> AdditionalHoverTips => [\n{}\n    ];\n",
+            items.join(",\n")
+        )
+    };
+    let powers_using = if card.hover_tip_powers.is_empty() {
+        String::new()
+    } else {
+        format!("using {ns}.Powers;\n")
+    };
+
     Ok(format!(
         r#"// 由 sts2mod 生成，勿手改（每次生成会覆盖）。自定义代码请放在项目的 src/ 目录。
 using MegaCrit.Sts2.Core.Commands;
@@ -853,10 +948,12 @@ using MegaCrit.Sts2.Core.Models.CardPools;
 using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.ValueProps;
+using STS2RitsuLib.CardTags;
 using STS2RitsuLib.Cards.DynamicVars;
 using STS2RitsuLib.Interop.AutoRegistration;
+using STS2RitsuLib.Keywords;
 using STS2RitsuLib.Scaffolding.Content;
-
+{powers_using}
 namespace {ns}.Cards;
 
 [RegisterCard(typeof({pool}))]
@@ -872,7 +969,7 @@ public class {class} : ModCardTemplate
     public override CardAssetProfile AssetProfile => new(
         PortraitPath: "res://{id}/images/cards/{class}.{portrait_ext}"
     );
-{canonical_vars}
+{canonical_vars}{keywords_block}{tags_block}{hover_block}
     public {class}() : base(energyCost, type, rarity, targetType, shouldShowInCardLibrary)
     {{
     }}
@@ -1000,14 +1097,14 @@ fn render_triggers(
 }
 
 /// CanonicalVars 属性块（vars 为空时返回空串）。
-fn render_canonical_vars(vars: &[VarDef]) -> Result<String> {
+fn render_canonical_vars(vars: &[VarDef], mod_id: &str) -> Result<String> {
     if vars.is_empty() {
         return Ok(String::new());
     }
     let mut src = String::new();
     for (i, v) in vars.iter().enumerate() {
         let sep = if i + 1 < vars.len() { "," } else { "" };
-        writeln!(src, "        {}{sep}", var_ctor(v)?).unwrap();
+        writeln!(src, "        {}{sep}", var_ctor(v, mod_id)?).unwrap();
     }
     Ok(format!(
         "\n    // 基础数值\n    protected override IEnumerable<DynamicVar> CanonicalVars => [\n{src}    ];\n"
@@ -1049,6 +1146,7 @@ using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.Models.RelicPools;
 using MegaCrit.Sts2.Core.Saves.Runs;
 using MegaCrit.Sts2.Core.ValueProps;
+using STS2RitsuLib.Cards.DynamicVars;
 using STS2RitsuLib.Interop.AutoRegistration;
 using STS2RitsuLib.Scaffolding.Content;
 
@@ -1069,7 +1167,7 @@ public class {class} : ModRelicTemplate
 {vars}{triggers}{extra}}}
 "#,
         rarity = relic.rarity,
-        vars = render_canonical_vars(&relic.vars)?,
+        vars = render_canonical_vars(&relic.vars, id)?,
         extra = render_extra_code(&relic.extra_code),
     ))
 }
@@ -1165,6 +1263,7 @@ using MegaCrit.Sts2.Core.Models.Cards;
 using MegaCrit.Sts2.Core.Models.PotionPools;
 using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.ValueProps;
+using STS2RitsuLib.Cards.DynamicVars;
 using STS2RitsuLib.Interop.AutoRegistration;
 using STS2RitsuLib.Scaffolding.Content;
 
@@ -1190,9 +1289,78 @@ public class {class} : ModPotionTemplate
         rarity = potion.rarity,
         usage = potion.usage,
         target = potion.target,
-        vars = render_canonical_vars(&potion.vars)?,
+        vars = render_canonical_vars(&potion.vars, id)?,
         extra = render_extra_code(&potion.extra_code),
     ))
+}
+
+// ---------- M6: 自定义关键词 / 卡牌标签 ----------
+
+fn keywords_cs(project: &Project) -> String {
+    let id = &project.manifest.id;
+    let ns = project.namespace();
+    let mut attrs = String::new();
+    let mut fields = String::new();
+    for kw in &project.keywords {
+        let name = &kw.name;
+        let mut args = format!("nameof({name})");
+        if let Some(icon) = &kw.icon {
+            let ext = ext_of(icon);
+            args.push_str(&format!(", IconPath = \"res://{id}/images/keywords/{name}.{ext}\""));
+        }
+        if kw.placement != "None" {
+            args.push_str(&format!(
+                ", CardDescriptionPlacement = ModKeywordCardDescriptionPlacement.{}",
+                kw.placement
+            ));
+        }
+        attrs.push_str(&format!("[RegisterOwnedCardKeyword({args})]\n"));
+        fields.push_str(&format!(
+            "    public static readonly CardKeyword {name} =\n        ModContentRegistry.GetQualifiedKeywordId(Entry.ModId, nameof({name})).GetModCardKeyword();\n"
+        ));
+    }
+    format!(
+        r#"// 由 sts2mod 生成，勿手改（每次生成会覆盖）。自定义代码请放在项目的 src/ 目录。
+using MegaCrit.Sts2.Core.Entities.Cards;
+using STS2RitsuLib.Content;
+using STS2RitsuLib.Interop.AutoRegistration;
+using STS2RitsuLib.Keywords;
+
+namespace {ns};
+
+// 自定义卡牌关键词（卡牌的"关键词"字段按名称引用；教程注明：不能是 static 类）
+{attrs}public class ModKeywords
+{{
+{fields}}}
+"#
+    )
+}
+
+fn card_tags_cs(project: &Project) -> String {
+    let ns = project.namespace();
+    let mut attrs = String::new();
+    let mut fields = String::new();
+    for t in &project.card_tags {
+        attrs.push_str(&format!("[RegisterOwnedCardTag(nameof({t}))]\n"));
+        fields.push_str(&format!(
+            "    public static readonly CardTag {t} =\n        ModContentRegistry.GetQualifiedCardTagId(Entry.ModId, nameof({t})).GetModCardTag();\n"
+        ));
+    }
+    format!(
+        r#"// 由 sts2mod 生成，勿手改（每次生成会覆盖）。自定义代码请放在项目的 src/ 目录。
+using MegaCrit.Sts2.Core.Entities.Cards;
+using STS2RitsuLib.CardTags;
+using STS2RitsuLib.Content;
+using STS2RitsuLib.Interop.AutoRegistration;
+
+namespace {ns};
+
+// 自定义卡牌标签（卡牌的"标签"字段按名称引用）
+{attrs}public class ModCardTags
+{{
+{fields}}}
+"#
+    )
 }
 
 // ---------- M4: 怪物 / 遭遇 / 事件 / 人物 ----------
@@ -1500,7 +1668,7 @@ fn event_cs(project: &Project, ev: &EventDef, warnings: &mut Vec<String>) -> Res
         String::new()
     };
 
-    let vars_block = render_canonical_vars(&ev.vars)?;
+    let vars_block = render_canonical_vars(&ev.vars, id)?;
 
     let condition_block = match &ev.condition {
         Some(cond) if !cond.trim().is_empty() => format!(
@@ -1664,6 +1832,7 @@ using MegaCrit.Sts2.Core.Rewards;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.ValueProps;
+using STS2RitsuLib.Cards.DynamicVars;
 using STS2RitsuLib.Interop.AutoRegistration;
 using STS2RitsuLib.Scaffolding.Content;
 {encounters_using}
@@ -2235,6 +2404,37 @@ fn localization_files(project: &Project) -> Result<Vec<(String, String, String)>
                         json!(desc),
                     );
                 }
+            }
+        }
+    }
+    // 自定义关键词：card_keywords.json（键规则见教程"添加新卡牌关键词"）
+    for kw in &project.keywords {
+        let kid = ids::content_id(mod_id, "KEYWORD", &kw.name);
+        for (lang, text) in &kw.text {
+            let map = buckets.entry((lang.clone(), "card_keywords.json")).or_default();
+            map.insert(format!("{kid}.title"), json!(text.title));
+            map.insert(format!("{kid}.description"), json!(text.description));
+        }
+    }
+    // 自定义数值的悬浮提示：static_hover_tips.json（WithSharedTooltip 的键）
+    {
+        let all_vars = project
+            .cards
+            .iter()
+            .flat_map(|c| &c.vars)
+            .chain(project.relics.iter().flat_map(|r| &r.vars))
+            .chain(project.potions.iter().flat_map(|p| &p.vars))
+            .chain(project.events.iter().flat_map(|e| &e.vars));
+        for v in all_vars {
+            if v.kind != "Custom" || v.tooltip.is_empty() {
+                continue;
+            }
+            let name = v.name.clone().unwrap_or_default();
+            let key = format!("{}_{}", ids::mod_prefix(mod_id), ids::upper_snake(&name));
+            for (lang, text) in &v.tooltip {
+                let map = buckets.entry((lang.clone(), "static_hover_tips.json")).or_default();
+                map.insert(format!("{key}.title"), json!(text.title));
+                map.insert(format!("{key}.description"), json!(text.description));
             }
         }
     }

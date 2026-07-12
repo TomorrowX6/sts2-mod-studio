@@ -126,6 +126,8 @@ pub fn import_mod(mod_dir: &Path, out_dir: &Path, log: LogFn) -> Result<ImportSu
         encounters: vec![],
         events: vec![],
         characters: vec![],
+        keywords: vec![],
+        card_tags: vec![],
         workshop: None,
     };
 
@@ -382,6 +384,10 @@ fn scaffold_content(
                         portrait: image,
                         vars: vec![],
                         on_play: vec![],
+                        keywords: vec![],
+                        tags: vec![],
+                        hover_tip_cards: vec![],
+                        hover_tip_powers: vec![],
                         text,
                         extra_code: None,
                     });

@@ -123,7 +123,7 @@ function varResolver(vars, opts = {}) {
   return (name) => {
     if (name === "Amount" && opts.amount != null) return { text: String(opts.amount) };
     for (const v of vars || []) {
-      const vn = v.kind === "Power" ? v.power : v.kind;
+      const vn = v.kind === "Power" ? v.power : v.kind === "Custom" ? v.name : v.kind;
       if (vn === name) {
         const up = previewShowUpgraded && (v.upgrade || 0) !== 0;
         return { text: String(v.value + (up ? v.upgrade : 0)), upgraded: up };
@@ -180,6 +180,24 @@ const GEM_SVG = `<svg viewBox="0 0 100 100">
 </svg>`;
 
 const CARD_TYPE_LABEL = { Attack: "攻击", Skill: "技能", Power: "能力", Status: "状态", Curse: "诅咒" };
+// 常见原版关键词的中文显示名（预览用；未知名原样显示）
+const KW_VANILLA = { Exhaust: "消耗", Ethereal: "虚无", Innate: "固有", Retain: "保留", Unplayable: "不可打出" };
+
+/// 卡牌关键词在指定位置的显示行（自定义关键词按项目定义的位置与标题）。
+function keywordLines(card, placement) {
+  const out = [];
+  for (const k of card.keywords || []) {
+    const def = (state.project?.keywords || []).find((x) => x.name === k);
+    if (def) {
+      if ((def.placement || "BeforeCardDescription") === placement) {
+        out.push(def.text?.zhs?.title || def.text?.en?.title || k);
+      }
+    } else if (placement === "BeforeCardDescription") {
+      out.push(KW_VANILLA[k] || k);
+    }
+  }
+  return out;
+}
 
 async function renderCardPreview(dock, card) {
   const stage = document.createElement("div");
@@ -237,7 +255,12 @@ async function renderCardPreview(dock, card) {
   desc.className = "cp-desc";
   const inner = document.createElement("div");
   inner.className = "cp-desc-inner";
-  inner.innerHTML = stsFormat(pickText(card, "description"), varResolver(card.vars));
+  const kwLine = (t) => `<span style="color:${STS_COLORS.gold}">${t}</span>。`;
+  const before = keywordLines(card, "BeforeCardDescription").map(kwLine).join("<br>");
+  const after = keywordLines(card, "AfterCardDescription").map(kwLine).join("<br>");
+  inner.innerHTML = [before, stsFormat(pickText(card, "description"), varResolver(card.vars)), after]
+    .filter(Boolean)
+    .join("<br>");
   desc.appendChild(inner);
   stage.appendChild(desc);
 

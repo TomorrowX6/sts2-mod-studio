@@ -487,3 +487,40 @@ sts2mod import "D:/.../Slay the Spire 2/mods/StudioTest" ./ReImported
 1. `ModUploader.exe upload` 需要先在 Steam 接受一次创意工坊条款，否则报错——属于 Steam 侧流程，不是工具问题
 2. 上传器对 `-w` 传绝对路径的兼容性（源码为 DirectoryInfo，应没问题；若报错请反馈，可改为相对路径+工作目录方案）
 3. 真实第三方 mod（非本工具生成）的导入：pck 里若有 VRAM 压缩纹理会跳过并警告，属预期
+
+---
+
+# M6 增量测试（卡牌深化）
+
+在 StudioTest 里给 KitchenSink 卡追加（UI：卡牌编辑器新字段 / 项目页"自定义关键词"）：
+
+```json
+  "keywords": ["Exhaust", "Unique"],
+  "tags": ["Strike"],
+  "hoverTipPowers": ["DrawStrength"]
+```
+
+顶层加：
+
+```json
+  "keywords": [
+    {
+      "name": "Unique",
+      "placement": "BeforeCardDescription",
+      "text": { "zhs": { "title": "唯一", "description": "卡组中只能有一张同名牌。" } }
+    }
+  ]
+```
+
+再给它加一个 Custom 数值：变量名 `Leech`、值 3、悬浮提示"汲取/吸取等量生命。"，
+描述里补 `[gold]汲取[/gold]{Leech}。`
+
+| # | 检查点 | 期望 |
+|---|--------|------|
+| 24 | `sts2mod deploy` | 编译通过；生成 `Scripts/ModKeywords.cs` |
+| 25 | 游戏内拿到该卡 | 描述前显示"唯一。"金色行；打出后进消耗堆（Exhaust 生效）；悬浮卡牌时旁侧出现 DrawStrength 能力说明与"唯一/汲取"提示框 |
+| 26 | 打击木偶战 | 该卡因 Strike 标签被木偶增伤 |
+| 27 | UI 预览 | 关键词金色行、{Leech} 解析为 3、升级开关正常 |
+
+**M6 观察点**：原版关键词/标签枚举名仅 `Exhaust`/`Strike` 出自教程原文，
+`Ethereal`/`Innate`/`Retain`/`Defend` 等为推断——用到时若报 CS0117 请反馈实际枚举名。

@@ -83,11 +83,13 @@ fn effects_and_power_vars() {
     card.vars.push(VarDef {
         kind: "Power".into(),
         power: Some("WeakPower".into()),
+        name: None,
+        tooltip: Default::default(),
         value: 2,
         props: vec![],
         upgrade: 1,
     });
-    card.vars.push(VarDef { kind: "Cards".into(), power: None, value: 1, props: vec![], upgrade: 0 });
+    card.vars.push(VarDef { kind: "Cards".into(), power: None, name: None, tooltip: Default::default(), value: 1, props: vec![], upgrade: 0 });
     card.on_play.push(Effect::Draw { var: None });
     card.on_play.push(Effect::ApplyPower {
         power: "WeakPower".into(),
@@ -148,7 +150,7 @@ fn relic_power_potion_generation() {
         pool: "Shared".into(),
         rarity: "Common".into(),
         icon: Some("assets/relics/LuckyCoin.png".into()),
-        vars: vec![VarDef { kind: "Cards".into(), power: None, value: 1, props: vec![], upgrade: 0 }],
+        vars: vec![VarDef { kind: "Cards".into(), power: None, name: None, tooltip: Default::default(), value: 1, props: vec![], upgrade: 0 }],
         triggers: vec![TriggerDef {
             trigger: "AfterPlayerTurnStart".into(),
             effects: vec![Effect::Draw { var: None }],
@@ -193,7 +195,7 @@ fn relic_power_potion_generation() {
         usage: "CombatOnly".into(),
         target: "Self".into(),
         image: None,
-        vars: vec![VarDef { kind: "Cards".into(), power: None, value: 3, props: vec![], upgrade: 0 }],
+        vars: vec![VarDef { kind: "Cards".into(), power: None, name: None, tooltip: Default::default(), value: 3, props: vec![], upgrade: 0 }],
         on_use: vec![Effect::Draw { var: None }],
         text: potion_text,
         extra_code: None,
@@ -282,7 +284,7 @@ fn invalid_trigger_rejected() {
 fn m3_effect_blocks() {
     let mut project = model::starter_project("Test", "x");
     let card = &mut project.cards[0];
-    card.vars.push(VarDef { kind: "Block".into(), power: None, value: 5, props: vec![], upgrade: 0 });
+    card.vars.push(VarDef { kind: "Block".into(), power: None, name: None, tooltip: Default::default(), value: 5, props: vec![], upgrade: 0 });
     card.on_play = vec![
         Effect::Block { var: None, amount: None },
         Effect::Heal { var: None, amount: Some(3) },
@@ -369,7 +371,7 @@ fn m3_context_restrictions() {
         usage: "CombatOnly".into(),
         target: "AnyEnemy".into(),
         image: None,
-        vars: vec![VarDef { kind: "Damage".into(), power: None, value: 8, props: vec![], upgrade: 0 }],
+        vars: vec![VarDef { kind: "Damage".into(), power: None, name: None, tooltip: Default::default(), value: 8, props: vec![], upgrade: 0 }],
         on_use: vec![Effect::DirectDamage { var: None, amount: None, props: vec![], to_self: false }],
         text: Default::default(),
         extra_code: None,
@@ -526,11 +528,13 @@ fn m4_event() -> sts2mod_core::model::EventDef {
             VarDef {
                 kind: "Damage".into(),
                 power: None,
+                name: None,
+                tooltip: Default::default(),
                 value: 10,
                 props: vec!["Unblockable".into(), "Unpowered".into()],
                 upgrade: 0,
             },
-            VarDef { kind: "Gold".into(), power: None, value: 60, props: vec![], upgrade: 0 },
+            VarDef { kind: "Gold".into(), power: None, name: None, tooltip: Default::default(), value: 60, props: vec![], upgrade: 0 },
         ],
         condition: Some("runState.Players.All(p => p.Gold >= DynamicVars.Gold.BaseValue)".into()),
         pages: vec![

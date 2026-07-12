@@ -111,6 +111,20 @@ MyMod/
 - 所有内容都有 `extraCode` 逃生舱：原样插入类体，可重写白名单外的任意钩子
 - 触发器白名单外的钩子名会在生成时报错（防止拼错静默失效）
 
+M6 新增**卡牌深化**（均经教程与 RitsuLib 0.4.54 反编译核对）：
+
+- **关键词**：卡牌加 `keywords`——原版名（`Exhaust` 等）直接写，自定义关键词在
+  项目级 `keywords` 定义（标识/图标/描述插入位置/双语文本），生成
+  `[RegisterOwnedCardKeyword]` 注册类与 `card_keywords.json`
+- **标签**：卡牌加 `tags`（原版 `Strike`/`Defend` 或项目级 `cardTags` 自定义，
+  生成 `[RegisterOwnedCardTag]`；打击木偶等按标签判定）
+- **自定义命名数值**：数值种类选 `Custom` + 变量名（描述里 `{Leech}` 引用），
+  生成 `ModCardVars.Int`；填了悬浮提示文本则自动
+  `.WithSharedTooltip` + `static_hover_tips.json`
+- **额外悬浮提示**：`hoverTipCards` / `hoverTipPowers` 引用本项目内容，
+  生成 `AdditionalHoverTips`（悬浮时旁侧展示卡牌预览/能力说明）
+- 编辑器实时预览会按位置渲染关键词行（金色）、解析自定义变量数值
+
 M4 新增 **怪物 / 遭遇 / 事件 / 人物**（`monsters` / `encounters` / `events` / `characters` 数组）：
 
 - **怪物**：血量区间、招式列表（意图 `attack`/`defend`/`custom` + 效果 + 每招标题/对白），
@@ -243,3 +257,4 @@ M4 待真机确认的推断点：
 - [x] M3 效果积木扩展：8 种新积木（格挡/治疗/直伤/金币/音效/特效/条件/循环，支持嵌套）、能力新触发器
 - [x] M4 怪物 / 遭遇 / 事件 / 人物向导（内置 tscn 模板、事件多页面、人物三池自动生成）
 - [x] M5 工坊上传（`sts2mod publish` 对接官方 sts2-mod-uploader）、导入已有 mod（pck 反向解析）
+- [x] M6 卡牌深化：自定义关键词 / 卡牌标签 / 命名数值+悬浮提示 / AdditionalHoverTips
