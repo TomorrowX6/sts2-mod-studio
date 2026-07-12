@@ -6,14 +6,25 @@ const dialog = window.__TAURI__.dialog;
 // view: welcome | project | content | settings；kind: 当前内容类型；sel = { kind, idx }
 const state = { dir: null, project: null, sel: null, view: "welcome", kind: "cards" };
 
-// 导航图标：彩色单字芯片（emoji 依赖系统字体，芯片任何平台渲染一致）
-const KIND_CHIPS = {
-  cards: ["卡", "#4f6bed"], relics: ["遗", "#c19c00"], powers: ["能", "#8764b8"],
-  potions: ["药", "#038387"], monsters: ["怪", "#d13438"], encounters: ["遇", "#ca5010"],
-  events: ["事", "#10893e"], characters: ["人", "#0078d4"],
+// 导航图标：彩色芯片 + 内联矢量图标（跨平台渲染一致）
+const ICON_SVGS = {
+  project: '<rect x="2.5" y="5" width="11" height="8.5" rx="1.3"/><path d="M2.5 6.5 L8 3 L13.5 6.5" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/>',
+  settings: '<circle cx="8" cy="8" r="2.4"/><g stroke="#fff" stroke-width="1.7" stroke-linecap="round"><path d="M8 1.6v2.1M8 12.3v2.1M1.6 8h2.1M12.3 8h2.1M3.5 3.5l1.5 1.5M11 11l1.5 1.5M12.5 3.5L11 5M5 11l-1.5 1.5"/></g>',
+  cards: '<rect x="1.8" y="3.4" width="7.6" height="10.4" rx="1.2" transform="rotate(-9 5.6 8.6)" opacity="0.6"/><rect x="6.4" y="2.6" width="7.6" height="10.4" rx="1.2" transform="rotate(7 10.2 7.8)"/>',
+  relics: '<path d="M4.4 2h7.2l3 4.2L8 14.6 1.4 6.2Z"/><path d="M4.4 2 8 6.2m0 0 3.6-4.2M1.4 6.2h13.2M8 6.2l0 8.4" fill="none" stroke="rgba(0,0,0,0.35)" stroke-width="1"/>',
+  powers: '<path d="M9.6 1.2 3.4 9h3.5l-1.3 5.8L12.6 6.5H8.5l1.1-5.3Z"/>',
+  potions: '<path d="M6.3 1.6h3.4v3.1l3.7 6.4c0.9 1.6-0.2 3.3-2 3.3H4.6c-1.8 0-2.9-1.7-2-3.3l3.7-6.4V1.6Z"/><rect x="5.4" y="1.2" width="5.2" height="1.6" rx="0.8"/>',
+  monsters: '<path d="M8 1.8c-3.3 0-5.6 2.4-5.6 5.5 0 2 0.9 3.4 2.2 4.2v2.2h1.8v-1.6h1.2v1.6h1.8v-1.6h1.2v1.6h1.8v-2.2c1.3-0.8 2.2-2.2 2.2-4.2 0-3.1-2.3-5.5-5.6-5.5Z"/><circle cx="5.7" cy="7" r="1.3" fill="rgba(0,0,0,0.55)"/><circle cx="10.3" cy="7" r="1.3" fill="rgba(0,0,0,0.55)"/>',
+  encounters: '<g stroke="#fff" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l8.2 8.2M13 3 4.8 11.2"/></g><g stroke="#fff" stroke-width="1.6" stroke-linecap="round"><path d="M10 13.4 12.9 10.5M3.1 10.5 6 13.4"/></g>',
+  events: '<path d="M4.2 1.8h8v10.4l-2.6 2H4.2c-1 0-1.8-0.8-1.8-1.8V3.6c0-1 0.8-1.8 1.8-1.8Z"/><path d="M5.2 5h5.6M5.2 7.4h5.6M5.2 9.8h3.4" stroke="rgba(0,0,0,0.4)" stroke-width="1.1" fill="none" stroke-linecap="round"/>',
+  characters: '<circle cx="8" cy="4.9" r="2.9"/><path d="M2.4 14.2c0-3.2 2.5-5.1 5.6-5.1s5.6 1.9 5.6 5.1Z"/>',
 };
-function chip(text, color) {
-  return `<span class="nav-chip" style="background:${color}">${text}</span>`;
+const KIND_CHIPS = {
+  cards: "#4f6bed", relics: "#c19c00", powers: "#8764b8", potions: "#038387",
+  monsters: "#d13438", encounters: "#ca5010", events: "#10893e", characters: "#0078d4",
+};
+function chip(icon, color) {
+  return `<span class="nav-chip" style="background:${color}"><svg viewBox="0 0 16 16" fill="#fff">${ICON_SVGS[icon]}</svg></span>`;
 }
 
 const $ = (id) => document.getElementById(id);
@@ -309,8 +320,7 @@ function renderNav() {
     if (state.view === "content" && state.kind === kind) btn.classList.add("active");
     btn.disabled = !state.project;
     const count = (state.project?.[kind] || []).length;
-    const [ch, color] = KIND_CHIPS[kind];
-    btn.innerHTML = chip(ch, color) + cfg.label +
+    btn.innerHTML = chip(kind, KIND_CHIPS[kind]) + cfg.label +
       (count ? `<span class="nav-badge">${count}</span>` : "");
     btn.onclick = () => setView("content", kind);
     box.appendChild(btn);
@@ -1123,6 +1133,8 @@ window.addEventListener("DOMContentLoaded", () => {
   $("btn-import2").onclick = importMod;
   $("nav-project").onclick = () => setView("project");
   $("nav-settings").onclick = () => setView("settings");
+  $("nav-project").innerHTML = chip("project", "#5c6bc0") + "项目与工坊";
+  $("nav-settings").innerHTML = chip("settings", "#6e6e6e") + "工具链设置";
   $("btn-add").onclick = () => {
     const kind = state.kind;
     const cfg = KINDS[kind];
@@ -1142,5 +1154,6 @@ window.addEventListener("DOMContentLoaded", () => {
   applyView();
   loadConfig();
 });
+
 
 

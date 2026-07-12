@@ -382,10 +382,11 @@ button.cmd.accent:hover { background: var(--accent-hover); }
 .with-preview { display: flex; gap: 18px; align-items: flex-start; }
 .editor-main { flex: 1; min-width: 0; }
 .editor-side {
-  width: 264px;
+  width: 296px;
   flex-shrink: 0;
   position: sticky;
   top: 0;
+  padding: 0 10px;
 }
 .preview-dock { text-align: center; }
 .cp-head { margin: 0 0 8px; }
@@ -393,7 +394,7 @@ button.cmd.accent:hover { background: var(--accent-hover); }
 /* 卡牌整卡：底图 598x844 */
 .cp-stage {
   position: relative;
-  width: 264px;
+  width: 268px;
   aspect-ratio: 598 / 844;
   margin: 0 auto;
   user-select: none;
@@ -417,38 +418,71 @@ button.cmd.accent:hover { background: var(--accent-hover); }
   width: 100%; height: 100%;
   pointer-events: none;
 }
-.cp-cost {
+.cp-stage { overflow: visible; }
+.cp-ribbon {
   position: absolute;
-  left: 2%; top: 1.2%;
-  width: 15%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  color: #fff;
-  font-size: 22px; font-weight: 700;
-  border: 2.5px solid rgba(255, 244, 214, 0.9);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  left: -5.5%; right: -5.5%;
+  top: 1.2%;
+  height: 13.5%;
+  z-index: 2;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.4));
 }
+.cp-ribbon svg { width: 100%; height: 100%; display: block; }
 .cp-title {
   position: absolute;
-  left: 9%; right: 9%;
-  top: 50.2%;
-  text-align: center;
-  color: #ffefd8;
+  left: 12%; right: 12%;
+  top: 3.4%;
+  height: 9%;
+  z-index: 3;
+  display: flex; align-items: center; justify-content: center;
+  color: #423a2c;
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 1px;
+  white-space: nowrap; overflow: hidden;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.cp-gem {
+  position: absolute;
+  left: -6%; top: -3.5%;
+  width: 23%;
+  aspect-ratio: 1;
+  z-index: 4;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+}
+.cp-gem svg { width: 100%; height: 100%; display: block; }
+.cp-gem-num {
+  position: absolute;
+  left: 0; right: 0;
+  top: 8%;
+  height: 88%;
+  display: flex; align-items: center; justify-content: center;
+  color: #4a3208;
+  font-size: 24px;
+  font-weight: 800;
+}
+.cp-type {
+  position: absolute;
+  left: 50%; top: 53.2%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  background: linear-gradient(#e3dfd5, #bdb7aa);
+  border: 2px solid #453f33;
+  border-radius: 5px;
+  padding: 1px 12px;
+  color: #2e2a22;
+  font-size: 12px;
   font-weight: 700;
-  font-size: 15.5px;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.6);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.45);
 }
 .cp-desc {
   position: absolute;
   left: 11%; right: 11%;
-  top: 58%; bottom: 9%;
+  top: 57%; bottom: 8%;
   display: flex; align-items: center; justify-content: center;
-  color: #efe6d9;
-  font-size: 13px;
-  line-height: 1.45;
+  color: #f3ece0;
+  font-size: 14px;
+  line-height: 1.55;
   text-align: center;
   overflow: hidden;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
@@ -508,3 +542,6 @@ button.cmd.accent:hover { background: var(--accent-hover); }
 .fx-fly_in, .fx-thinky_dots { /* 近似：不做动画 */ }
 
 .cp-desc-inner { width: 100%; text-align: center; max-height: 100%; overflow: hidden; }
+
+/* 芯片内矢量图标 */
+.nav-chip svg { width: 13px; height: 13px; display: block; }

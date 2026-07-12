@@ -139,6 +139,41 @@ function pickText(item, field) {
 
 // ---------- 卡牌整卡预览 ----------
 
+// 标题缎带横幅（参照游戏截图：银色缎带、两端外翻带 V 形缺口）
+const RIBBON_SVG = `<svg viewBox="0 0 600 120" preserveAspectRatio="none">
+  <defs>
+    <linearGradient id="rb-band" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2efe8"/>
+      <stop offset="0.55" stop-color="#d9d4c9"/>
+      <stop offset="1" stop-color="#b7b1a4"/>
+    </linearGradient>
+  </defs>
+  <polygon points="2,30 78,10 78,106 2,120 26,73" fill="#9d968a" stroke="#6b6458" stroke-width="3"/>
+  <polygon points="598,30 522,10 522,106 598,120 574,73" fill="#9d968a" stroke="#6b6458" stroke-width="3"/>
+  <polygon points="78,10 100,26 78,44" fill="#67604f"/>
+  <polygon points="522,10 500,26 522,44" fill="#67604f"/>
+  <path d="M70,8 Q300,-4 530,8 L530,104 Q300,116 70,104 Z" fill="url(#rb-band)" stroke="#7c7566" stroke-width="3.5"/>
+</svg>`;
+
+// 费用宝石（红宝石多面体 + 内嵌金圆）
+const GEM_SVG = `<svg viewBox="0 0 100 100">
+  <defs>
+    <radialGradient id="gem-gold" cx="0.42" cy="0.36" r="0.75">
+      <stop offset="0" stop-color="#ffe08a"/>
+      <stop offset="0.7" stop-color="#f2b93f"/>
+      <stop offset="1" stop-color="#c98f22"/>
+    </radialGradient>
+  </defs>
+  <polygon points="50,2 81,13 97,45 89,78 58,98 24,91 4,60 12,23"
+    fill="#cf3a2b" stroke="#7c1d14" stroke-width="5" stroke-linejoin="round"/>
+  <polygon points="50,2 81,13 66,26 44,22" fill="#ee6a50" opacity="0.85"/>
+  <polygon points="4,60 12,23 33,38" fill="#a52619" opacity="0.7"/>
+  <polygon points="58,98 89,78 70,64" fill="#a52619" opacity="0.55"/>
+  <circle cx="50" cy="52" r="31" fill="url(#gem-gold)" stroke="#7a5715" stroke-width="4"/>
+</svg>`;
+
+const CARD_TYPE_LABEL = { Attack: "攻击", Skill: "技能", Power: "能力", Status: "状态", Curse: "诅咒" };
+
 async function renderCardPreview(dock, card) {
   const stage = document.createElement("div");
   stage.className = "cp-stage";
@@ -164,20 +199,32 @@ async function renderCardPreview(dock, card) {
     stage.appendChild(frame);
   }
 
-  const scheme = poolFrameColor(card.pool || "Colorless");
-  const orbColor = scheme
-    ? `rgb(${scheme.target.map((c) => Math.round(c * 200)).join(",")})`
-    : "#8a2e2e";
-  const cost = document.createElement("div");
-  cost.className = "cp-cost";
-  cost.style.background = orbColor;
-  cost.textContent = card.energyCost ?? 1;
-  stage.appendChild(cost);
+  // 标题缎带（游戏里标题在顶部横幅上，深色字）
+  const ribbon = document.createElement("div");
+  ribbon.className = "cp-ribbon";
+  ribbon.innerHTML = RIBBON_SVG;
+  stage.appendChild(ribbon);
 
   const title = document.createElement("div");
   title.className = "cp-title";
   title.textContent = pickText(card, "title") || card.className;
   stage.appendChild(title);
+
+  // 费用宝石（左上角，压在横幅上）
+  const gem = document.createElement("div");
+  gem.className = "cp-gem";
+  gem.innerHTML = GEM_SVG;
+  const costNum = document.createElement("span");
+  costNum.className = "cp-gem-num";
+  costNum.textContent = card.energyCost ?? 1;
+  gem.appendChild(costNum);
+  stage.appendChild(gem);
+
+  // 类型标签（画面与描述分界线中央的小牌）
+  const typeChip = document.createElement("div");
+  typeChip.className = "cp-type";
+  typeChip.textContent = CARD_TYPE_LABEL[card.cardType] || card.cardType;
+  stage.appendChild(typeChip);
 
   const desc = document.createElement("div");
   desc.className = "cp-desc";
