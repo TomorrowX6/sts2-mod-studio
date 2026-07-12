@@ -3,7 +3,18 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const dialog = window.__TAURI__.dialog;
 
-const state = { dir: null, project: null, sel: null }; // sel = { kind, idx }
+// view: welcome | project | content | settings；kind: 当前内容类型；sel = { kind, idx }
+const state = { dir: null, project: null, sel: null, view: "welcome", kind: "cards" };
+
+// 导航图标：彩色单字芯片（emoji 依赖系统字体，芯片任何平台渲染一致）
+const KIND_CHIPS = {
+  cards: ["卡", "#4f6bed"], relics: ["遗", "#c19c00"], powers: ["能", "#8764b8"],
+  potions: ["药", "#038387"], monsters: ["怪", "#d13438"], encounters: ["遇", "#ca5010"],
+  events: ["事", "#10893e"], characters: ["人", "#0078d4"],
+};
+function chip(text, color) {
+  return `<span class="nav-chip" style="background:${color}">${text}</span>`;
+}
 
 const $ = (id) => document.getElementById(id);
 const VAR_KINDS = ["Damage", "Block", "Cards", "Energy", "Repeat", "Heal", "HpLoss",
@@ -171,8 +182,13 @@ async function newProject() {
 function autoSelectFirst() {
   state.sel = null;
   for (const kind of Object.keys(KINDS)) {
-    if ((state.project[kind] || []).length) { state.sel = { kind, idx: 0 }; break; }
+    if ((state.project[kind] || []).length) {
+      state.sel = { kind, idx: 0 };
+      state.kind = kind;
+      break;
+    }
   }
+  state.view = state.sel ? "content" : "project";
 }
 
 async function saveProject() {
@@ -234,10 +250,12 @@ async function importMod() {
 // ---------- 渲染 ----------
 
 function renderAll() {
-  $("editor").classList.remove("hidden");
   $("pipeline").classList.remove("hidden");
   $("btn-save").disabled = false;
-  $("project-path").textContent = state.dir;
+  $("nav-project").disabled = false;
+  const base = String(state.dir).replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+  $("project-path").textContent = `${base}（${state.project.manifest.id}）`;
+  $("project-path").title = state.dir;
   const m = state.project.manifest;
   $("m-id").value = m.id;
   $("m-name").value = m.name;
@@ -251,40 +269,84 @@ function renderAll() {
   $("w-tags").value = (w.tags || []).join(", ");
   $("w-changeNote").value = w.changeNote || "";
   $("w-visibility").value = w.visibility || "";
-  renderLists();
+  renderNav();
+  renderItemList();
   renderEditor();
+  applyView();
 }
 
-function renderLists() {
-  const box = $("content-lists");
-  box.innerHTML = "";
-  for (const [kind, cfg] of Object.entries(KINDS)) {
-    const h = document.createElement("h3");
-    h.textContent = cfg.label + " ";
-    const add = document.createElement("button");
-    add.className = "small";
-    add.textContent = "＋";
-    add.onclick = () => {
-      state.project[kind] = state.project[kind] || [];
-      state.project[kind].push(cfg.newItem(state.project[kind].length + 1));
-      state.sel = { kind, idx: state.project[kind].length - 1 };
-      renderLists();
-      renderEditor();
-    };
-    h.appendChild(add);
-    box.appendChild(h);
-    const ul = document.createElement("ul");
-    ul.className = "content-list";
-    (state.project[kind] || []).forEach((item, idx) => {
-      const li = document.createElement("li");
-      const title = item.text?.zhs?.title || item.text?.zhs?.name || item.title?.zhs;
-      li.textContent = item.className + (title ? `（${title}）` : "");
-      if (state.sel && state.sel.kind === kind && state.sel.idx === idx) li.classList.add("selected");
-      li.onclick = () => { state.sel = { kind, idx }; renderLists(); renderEditor(); };
-      ul.appendChild(li);
-    });
-    box.appendChild(ul);
+/// 切换主区域视图：welcome / project / content / settings。
+function applyView() {
+  for (const v of ["welcome", "project", "editor", "settings"]) {
+    $("view-" + v).classList.toggle("hidden", state.view !== (v === "editor" ? "content" : v));
   }
+  $("list-pane").classList.toggle("hidden", state.view !== "content" || !state.project);
+  renderNav();
+}
+
+function setView(view, kind) {
+  state.view = view;
+  if (kind) {
+    state.kind = kind;
+    // 记住每类里上次选中的条目；类型切换时默认选第一个
+    if (!state.sel || state.sel.kind !== kind) {
+      state.sel = (state.project?.[kind] || []).length ? { kind, idx: 0 } : null;
+    }
+    renderItemList();
+    renderEditor();
+  }
+  applyView();
+}
+
+function renderNav() {
+  const box = $("nav-kinds");
+  box.innerHTML = "";
+  $("nav-project").classList.toggle("active", state.view === "project");
+  $("nav-settings").classList.toggle("active", state.view === "settings");
+  for (const [kind, cfg] of Object.entries(KINDS)) {
+    const btn = document.createElement("button");
+    btn.className = "nav-item";
+    if (state.view === "content" && state.kind === kind) btn.classList.add("active");
+    btn.disabled = !state.project;
+    const count = (state.project?.[kind] || []).length;
+    const [ch, color] = KIND_CHIPS[kind];
+    btn.innerHTML = chip(ch, color) + cfg.label +
+      (count ? `<span class="nav-badge">${count}</span>` : "");
+    btn.onclick = () => setView("content", kind);
+    box.appendChild(btn);
+  }
+}
+
+function renderItemList() {
+  if (!state.project) return;
+  const kind = state.kind;
+  const cfg = KINDS[kind];
+  $("list-title").textContent = cfg.label;
+  const ul = $("item-list");
+  ul.innerHTML = "";
+  const items = state.project[kind] || [];
+  if (!items.length) {
+    const li = document.createElement("li");
+    li.className = "muted";
+    li.textContent = "（空）点右上「＋ 新建」";
+    li.style.cursor = "default";
+    ul.appendChild(li);
+    return;
+  }
+  items.forEach((item, idx) => {
+    const li = document.createElement("li");
+    const title = item.text?.zhs?.title || item.text?.zhs?.name || item.title?.zhs;
+    li.textContent = item.className + (title ? `（${title}）` : "");
+    if (state.sel && state.sel.kind === kind && state.sel.idx === idx) li.classList.add("selected");
+    li.onclick = () => { state.sel = { kind, idx }; renderItemList(); renderEditor(); };
+    ul.appendChild(li);
+  });
+}
+
+/// 侧栏整体刷新（导航角标 + 列表），编辑器内改名/增删后调用。
+function renderLists() {
+  renderNav();
+  renderItemList();
 }
 
 function selected() {
@@ -312,7 +374,9 @@ function renderEditor() {
   del.onclick = () => {
     if (!confirm(`删除${cfg.label} ${item.className}？`)) return;
     state.project[kind].splice(state.sel.idx, 1);
-    autoSelectFirst();
+    // 留在当前类型：选上一个条目，删空则清空选择
+    const remain = state.project[kind].length;
+    state.sel = remain ? { kind, idx: Math.min(state.sel.idx, remain - 1) } : null;
     renderLists();
     renderEditor();
   };
@@ -1050,9 +1114,28 @@ window.addEventListener("DOMContentLoaded", () => {
       logLine("已导入预览图: " + rel);
     } catch (e) { alert("导入失败: " + e); }
   };
-  $("btn-settings").onclick = () => $("settings").classList.toggle("hidden");
+  $("btn-open2").onclick = openProject;
+  $("btn-new2").onclick = newProject;
+  $("btn-import2").onclick = importMod;
+  $("nav-project").onclick = () => setView("project");
+  $("nav-settings").onclick = () => setView("settings");
+  $("btn-add").onclick = () => {
+    const kind = state.kind;
+    const cfg = KINDS[kind];
+    state.project[kind] = state.project[kind] || [];
+    state.project[kind].push(cfg.newItem(state.project[kind].length + 1));
+    state.sel = { kind, idx: state.project[kind].length - 1 };
+    renderLists();
+    renderEditor();
+  };
+  $("btn-log-toggle").onclick = () => {
+    const collapsed = $("log").classList.toggle("collapsed");
+    $("btn-log-toggle").textContent = collapsed ? "日志 ▸" : "日志 ▾";
+  };
   $("btn-save-config").onclick = saveConfig;
   $("btn-doctor").onclick = runDoctor;
   listen("pipeline-log", (ev) => logLine(ev.payload));
+  applyView();
   loadConfig();
 });
+

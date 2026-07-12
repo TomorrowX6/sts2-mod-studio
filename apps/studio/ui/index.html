@@ -6,82 +6,136 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header>
-    <strong>STS2 Mod Studio</strong>
-    <button id="btn-open">打开项目…</button>
-    <button id="btn-new">新建项目…</button>
-    <button id="btn-import">导入 mod…</button>
-    <button id="btn-save" disabled>保存</button>
+  <!-- 命令栏 -->
+  <header id="titlebar">
+    <div class="app-title"><span class="app-logo">⬢</span> STS2 Mod Studio</div>
+    <div class="cmd-group">
+      <button id="btn-open" class="cmd">打开</button>
+      <button id="btn-new" class="cmd">新建</button>
+      <button id="btn-import" class="cmd">导入 mod</button>
+      <button id="btn-save" class="cmd accent" disabled>保存</button>
+    </div>
     <span id="project-path" class="muted"></span>
     <span class="spacer"></span>
-    <button id="btn-settings">工具链设置</button>
   </header>
 
-  <div id="settings" class="panel hidden">
-    <h3>工具链设置（全局）</h3>
-    <div class="grid2">
-      <label>游戏目录 <input id="cfg-sts2Dir" placeholder="D:/Steam/steamapps/common/Slay the Spire 2" /></label>
-      <label>Godot 可执行文件 <input id="cfg-godotExe" placeholder="…/Godot_v4.5.1-stable_mono_win64.exe" /></label>
-      <label>dotnet 命令 <input id="cfg-dotnet" placeholder="dotnet（默认）" /></label>
-      <label>pck 架构
-        <select id="cfg-pckArch">
-          <option value="">x86_64（默认）</option>
-          <option value="msil">msil（兼容 mac）</option>
-        </select>
-      </label>
-      <label>ModUploader 路径 <input id="cfg-modUploaderExe" placeholder="…/ModUploader.exe（发布工坊用，可选）" /></label>
-    </div>
-    <button id="btn-save-config">保存配置</button>
-    <button id="btn-doctor">环境自检</button>
-    <ul id="doctor-result"></ul>
+  <div id="shell">
+    <!-- 导航栏 -->
+    <nav id="nav">
+      <button class="nav-item" data-view="project" id="nav-project" disabled>
+        <span class="nav-chip" style="background:#5c6bc0">项</span>项目与工坊
+      </button>
+      <div class="nav-sep">内容</div>
+      <div id="nav-kinds"></div>
+      <span class="spacer"></span>
+      <button class="nav-item" data-view="settings" id="nav-settings">
+        <span class="nav-chip" style="background:#6e6e6e">设</span>工具链设置
+      </button>
+    </nav>
+
+    <!-- 条目列表 -->
+    <section id="list-pane" class="hidden">
+      <div class="list-head">
+        <span id="list-title"></span>
+        <button id="btn-add" class="small accent">＋ 新建</button>
+      </div>
+      <ul id="item-list" class="content-list"></ul>
+    </section>
+
+    <!-- 主区域 -->
+    <section id="main-pane">
+      <!-- 欢迎页 -->
+      <div id="view-welcome" class="view">
+        <div class="welcome">
+          <div class="welcome-logo">⬢</div>
+          <h2>STS2 Mod Studio</h2>
+          <p class="muted">《杀戮尖塔2》mod 低代码制作工具——卡牌、遗物、怪物、事件、人物，一键部署与工坊发布。</p>
+          <div class="welcome-actions">
+            <button id="btn-open2" class="accent">打开项目…</button>
+            <button id="btn-new2">新建项目…</button>
+            <button id="btn-import2">导入已有 mod…</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 项目清单 + 工坊 -->
+      <div id="view-project" class="view hidden">
+        <div class="card">
+          <h3>Mod 清单</h3>
+          <div class="grid2">
+            <label>ID <input id="m-id" /></label>
+            <label>名称 <input id="m-name" /></label>
+            <label>作者 <input id="m-author" /></label>
+            <label>版本 <input id="m-version" placeholder="0.1.0" /></label>
+            <label>最低游戏版本 <input id="m-minGameVersion" placeholder="0.107.1" /></label>
+            <label class="checkline"><input type="checkbox" id="m-affects" /> 影响多人玩法</label>
+          </div>
+          <label>描述 <textarea id="m-description" rows="2"></textarea></label>
+        </div>
+        <div class="card">
+          <h3>创意工坊发布</h3>
+          <div class="row">
+            <label>预览图（png，&lt;1MB）<input id="w-previewImage" placeholder="assets/workshop/Preview.png" /></label>
+            <button id="w-pick" class="small">选择图片…</button>
+          </div>
+          <div class="grid2">
+            <label>标签（逗号分隔，上传后不可改）<input id="w-tags" placeholder="Cards, schinese" /></label>
+            <label>首次可见性
+              <select id="w-visibility">
+                <option value="">private（默认）</option>
+                <option value="public">public</option>
+                <option value="unlisted">unlisted</option>
+                <option value="friends_only">friends_only</option>
+              </select>
+            </label>
+          </div>
+          <label>更新说明 <textarea id="w-changeNote" rows="2"></textarea></label>
+          <p class="muted">标题/描述首次发布取自清单；之后请到工坊网页修改，这里留空不覆盖。发布用底部「发布工坊」。</p>
+        </div>
+      </div>
+
+      <!-- 内容编辑器 -->
+      <div id="view-editor" class="view hidden">
+        <div id="edit-panel" class="card"><p class="muted">左侧选择或新建内容</p></div>
+      </div>
+
+      <!-- 设置 -->
+      <div id="view-settings" class="view hidden">
+        <div class="card">
+          <h3>工具链设置（全局）</h3>
+          <div class="grid2">
+            <label>游戏目录 <input id="cfg-sts2Dir" placeholder="D:/Steam/steamapps/common/Slay the Spire 2" /></label>
+            <label>Godot 可执行文件 <input id="cfg-godotExe" placeholder="…/Godot_v4.5.1-stable_mono_win64.exe" /></label>
+            <label>dotnet 命令 <input id="cfg-dotnet" placeholder="dotnet（默认）" /></label>
+            <label>pck 架构
+              <select id="cfg-pckArch">
+                <option value="">x86_64（默认）</option>
+                <option value="msil">msil（兼容 mac）</option>
+              </select>
+            </label>
+            <label>ModUploader 路径 <input id="cfg-modUploaderExe" placeholder="…/ModUploader.exe（发布工坊用，可选）" /></label>
+          </div>
+          <div class="btn-row">
+            <button id="btn-save-config" class="accent">保存配置</button>
+            <button id="btn-doctor">环境自检</button>
+          </div>
+          <ul id="doctor-result"></ul>
+        </div>
+      </div>
+    </section>
   </div>
 
-  <main id="editor" class="hidden">
-    <section class="panel" id="sidebar">
-      <h3>Mod 清单</h3>
-      <div class="grid2">
-        <label>ID <input id="m-id" /></label>
-        <label>名称 <input id="m-name" /></label>
-        <label>作者 <input id="m-author" /></label>
-        <label>版本 <input id="m-version" placeholder="0.1.0" /></label>
-        <label>最低游戏版本 <input id="m-minGameVersion" placeholder="0.107.1" /></label>
-        <label class="checkline"><input type="checkbox" id="m-affects" /> 影响多人玩法</label>
-      </div>
-      <label>描述 <textarea id="m-description" rows="2"></textarea></label>
-      <details id="workshop-box">
-        <summary>创意工坊发布</summary>
-        <div class="row">
-          <label>预览图（png，&lt;1MB）<input id="w-previewImage" placeholder="assets/workshop/Preview.png" /></label>
-          <button id="w-pick" class="small">选择图片…</button>
-        </div>
-        <label>标签（逗号分隔，上传后不可改）<input id="w-tags" placeholder="Cards, schinese" /></label>
-        <label>更新说明 <textarea id="w-changeNote" rows="2"></textarea></label>
-        <label>首次可见性
-          <select id="w-visibility">
-            <option value="">private（默认）</option>
-            <option value="public">public</option>
-            <option value="unlisted">unlisted</option>
-            <option value="friends_only">friends_only</option>
-          </select>
-        </label>
-        <p class="muted">标题/描述首次发布取自清单；之后请到工坊网页修改，这里留空不覆盖。</p>
-      </details>
-      <div id="content-lists"></div>
-    </section>
-
-    <section class="panel" id="edit-panel">
-      <p class="muted">左侧选择或新建内容</p>
-    </section>
-  </main>
-
+  <!-- 流水线 -->
   <footer id="pipeline" class="hidden">
     <div class="toolbar">
       <button id="btn-generate">生成代码</button>
       <button id="btn-build">生成+编译</button>
       <button id="btn-pack">导出 pck</button>
-      <button id="btn-deploy" class="primary">一键部署</button>
-      <button id="btn-publish">发布工坊</button>
-      <span id="busy" class="muted hidden">运行中…</span>
+      <button id="btn-deploy" class="accent">▶ 一键部署</button>
+      <button id="btn-publish">↥ 发布工坊</button>
+      <span id="busy" class="busy hidden"><span class="dot"></span>运行中…</span>
+      <span class="spacer"></span>
+      <button id="btn-log-toggle" class="small">日志 ▾</button>
     </div>
     <pre id="log"></pre>
   </footer>
