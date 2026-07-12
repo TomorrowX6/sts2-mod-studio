@@ -173,6 +173,10 @@ cargo run -p sts2mod-studio
 ```
 
 打开/新建项目 → 表单编辑清单、卡牌、数值、效果、双语文本 → 底部一键部署，日志实时输出。
+WinUI 风格界面（跟随系统深浅色）；卡牌编辑带**整卡实时预览**——真实游戏卡框按
+卡池换色（换色着色器逐行移植自 RitsuLib `ReplaceHue`，人物专属池显示主题色）、
+占位符与 BBCode 颜色/特效实时渲染、一键切换升级后数值；遗物/能力/药水显示
+游戏悬浮提示样式预览。
 工具链设置存全局配置（`~/.config/sts2mod/config.json` 或 `%APPDATA%/sts2mod`），
 项目目录下可用 `sts2mod.local.json` 覆盖。
 

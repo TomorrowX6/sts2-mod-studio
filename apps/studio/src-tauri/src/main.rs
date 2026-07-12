@@ -134,6 +134,24 @@ async fn import_mod(window: tauri::Window, mod_dir: String, out_dir: String) -> 
     .map_err(err_str)?
 }
 
+/// 读取项目内图片为 data URL（预览用）。仅允许项目目录内的相对路径。
+#[tauri::command]
+fn read_image(dir: String, rel: String) -> CmdResult<String> {
+    use base64::Engine as _;
+    if rel.contains("..") || Path::new(&rel).is_absolute() {
+        return Err(format!("非法路径: {rel}"));
+    }
+    let path = Path::new(&dir).join(&rel);
+    let bytes = std::fs::read(&path).map_err(|e| format!("读取 {rel} 失败: {e}"))?;
+    let mime = match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        _ => "image/png",
+    };
+    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
 #[tauri::command]
 fn get_config() -> CmdResult<config::ToolConfig> {
     config::load_global().map_err(|e| format!("{e:#}"))
@@ -155,6 +173,7 @@ fn main() {
             doctor,
             import_asset,
             import_mod,
+            read_image,
             get_config,
             set_config
         ])

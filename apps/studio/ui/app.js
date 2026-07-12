@@ -357,6 +357,7 @@ function selected() {
 function renderEditor() {
   const panel = $("edit-panel");
   panel.innerHTML = "";
+  panel.className = "card";
   const item = selected();
   if (!item) {
     panel.innerHTML = '<p class="muted">左侧选择或新建内容</p>';
@@ -572,6 +573,9 @@ function renderEditor() {
   extra.value = item.extraCode || "";
   extra.oninput = () => item.extraCode = extra.value.trim() ? extra.value : undefined;
   panel.appendChild(extra);
+
+  // 实时预览（卡牌整卡 / 遗物·能力·药水提示框），见 preview.js
+  mountPreview(panel, kind, item);
 }
 
 function setTextField(item, lang, field, value, cfg) {
@@ -1138,4 +1142,5 @@ window.addEventListener("DOMContentLoaded", () => {
   applyView();
   loadConfig();
 });
+
 
