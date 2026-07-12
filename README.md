@@ -1,6 +1,10 @@
 # STS2 Mod Studio
 
+[![CI](https://github.com/TomorrowX6/sts2-mod-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/TomorrowX6/sts2-mod-studio/actions/workflows/ci.yml)
+
 《杀戮尖塔2》mod 图形化制作工具——低代码/零代码制作 mod。
+不想自己编译的话，直接从 [Releases](https://github.com/TomorrowX6/sts2-mod-studio/releases)
+下载对应平台的包（Windows 用户解压后运行 `sts2mod-studio.exe` 即可）。
 
 基于 [RitsuLib](https://github.com/BAKAOLC/STS2-RitsuLib)。你在界面/项目文件里描述内容（卡牌、数值、效果、文本），
 工具生成完整的 C# + Godot 工程并一键完成 编译 dll → 导出 pck → 部署到游戏 mods 目录。
@@ -265,3 +269,4 @@ M4 曾待真机确认的推断点（2026-07-12 真机测试未报告异常）：
 - [x] M4 怪物 / 遭遇 / 事件 / 人物向导（内置 tscn 模板、事件多页面、人物三池自动生成）
 - [x] M5 工坊上传（`sts2mod publish` 对接官方 sts2-mod-uploader）、导入已有 mod（pck 反向解析）
 - [x] M6 卡牌深化：自定义关键词 / 卡牌标签 / 命名数值+悬浮提示 / AdditionalHoverTips
+- [x] CI/发版：push 跑测试；`git tag v* && git push origin v*` 自动出三平台包（GitHub Actions）

@@ -1,0 +1,96 @@
+# 发版：推送 v* 标签时构建三平台二进制并创建 GitHub Release。
+#   git tag v0.1.0 && git push origin v0.1.0
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x86_64
+            ext: .exe
+            archive: zip
+          - os: ubuntu-latest
+            target: linux-x86_64
+            ext: ""
+            archive: tar.gz
+          - os: macos-latest
+            target: macos-aarch64
+            ext: ""
+            archive: tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装系统依赖（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 构建（release）
+        run: cargo build --release --workspace
+
+      - name: 打包（Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "sts2-mod-studio-${{ github.ref_name }}-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path $name | Out-Null
+          Copy-Item target/release/sts2mod.exe, target/release/sts2mod-studio.exe, README.md, TESTING.md $name
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+
+      - name: 打包（Linux / macOS）
+        if: runner.os != 'Windows'
+        run: |
+          name="sts2-mod-studio-${{ github.ref_name }}-${{ matrix.target }}"
+          mkdir "$name"
+          cp target/release/sts2mod target/release/sts2mod-studio README.md TESTING.md "$name/"
+          tar czf "$name.tar.gz" "$name"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            *.zip
+            *.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ## 使用说明（Windows 用户）
+
+            1. 解压 `windows-x86_64` 包，`sts2mod-studio.exe` 是图形界面，`sts2mod.exe` 是命令行
+            2. 首次使用在「工具链设置」里配置游戏目录与 Godot 4.5.1 Mono 路径
+            3. 环境准备详见包内 README.md；真机验证清单见 TESTING.md
