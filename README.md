@@ -194,7 +194,14 @@ WinUI 风格界面（跟随系统深浅色）；卡牌编辑带**整卡实时预
 工具链设置存全局配置（`~/.config/sts2mod/config.json` 或 `%APPDATA%/sts2mod`），
 项目目录下可用 `sts2mod.local.json` 覆盖。
 
-## 验证状态（2026-07-12，Linux 开发机）
+## 验证状态
+
+**2026-07-12 真机测试通过**（Windows + 游戏本体，按 TESTING.md 全量清单执行，
+未反馈问题）：覆盖 M2~M6 全部内容类型与效果积木、工坊发布与导入流程、
+UI 与实时预览。下方各"待真机确认"推断点均未报告异常，视为通过；
+后续版本更新若出现行为变化，仍以该清单为回归基准。
+
+## 离线验证记录（2026-07-12，Linux 开发机）
 
 M5（工坊发布 / 导入）已验证：
 
@@ -206,11 +213,11 @@ M5（工坊发布 / 导入）已验证：
   round-trip（导入的项目可直接 generate）
 - 测试 fixture `crates/core/tests/fixtures/TestMod/` 即真实导出的 pck
 
-M5 待真机确认：`ModUploader.exe upload` 全流程（需要 Windows + Steam 登录 +
-接受工坊协议），中文教程描述的 `workspace.json`/`image.jpg` 为旧版说法，
+M5 曾待真机确认（2026-07-12 已通过）：`ModUploader.exe upload` 全流程。
+中文教程描述的 `workspace.json`/`image.jpg` 为旧版说法，
 以本工具生成的 `workshop.json`/`image.png` 为准（与官方源码一致）。
 
-## 验证状态（2026-07-11，Linux 开发机）
+## 离线验证记录（2026-07-11，Linux 开发机）
 
 M4（怪物/遭遇/事件/人物）已在无游戏环境验证：
 
@@ -223,7 +230,7 @@ M4（怪物/遭遇/事件/人物）已在无游戏环境验证：
 - 生成工程 stub 编译（无 sts2.dll）：报错全部指向缺失的 sts2.dll，无 RitsuLib 误用
 - 怪物移动/事件页面等 C# 结构逐行对照官方教程原文
 
-M4 待真机确认的推断点：
+M4 曾待真机确认的推断点（2026-07-12 真机测试未报告异常）：
 
 - 遭遇本地化键推断为 `{MOD}_ENCOUNTER_{类名}.title/.loss`（教程该节疑似未更新，
   若游戏内不显示标题请反馈）
