@@ -1,0 +1,12 @@
+{
+  "id": "TestMod",
+  "name": "测试模组",
+  "author": "someone",
+  "description": "an existing mod",
+  "version": "1.2",
+  "min_game_version": "0.107.1",
+  "has_pck": true,
+  "has_dll": true,
+  "dependencies": [{ "id": "STS2-RitsuLib", "min_version": "0.4.54" }],
+  "affects_gameplay": true
+}

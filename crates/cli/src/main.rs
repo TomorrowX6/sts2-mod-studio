@@ -42,6 +42,19 @@ enum Cmd {
     Pack,
     /// 一键：生成 + 编译 + 导出，直接部署进游戏 mods 目录
     Deploy,
+    /// 发布到创意工坊：deploy + 组装 workshop/ 工作区 + 调用官方 ModUploader
+    Publish {
+        /// 跳过构建，直接用游戏 mods 目录里的现有产物
+        #[arg(long)]
+        skip_deploy: bool,
+    },
+    /// 导入已有 mod（部署目录，含 <id>.json 与可选 pck）为新项目骨架
+    Import {
+        /// 已有 mod 的目录，如 <游戏>/mods/SomeMod 或工坊订阅目录
+        mod_dir: PathBuf,
+        /// 生成的新项目目录
+        out_dir: PathBuf,
+    },
     /// 检查工具链与项目状态
     Doctor,
     /// 查看/修改全局配置（sts2Dir / godotExe / dotnet / pckArch）
@@ -88,7 +101,7 @@ fn run(cli: Cli) -> Result<()> {
             project.save(&target)?;
             std::fs::write(
                 target.join(".gitignore"),
-                "build/\nsts2mod.local.json\n",
+                "build/\nworkshop/content/\nsts2mod.local.json\n",
             )?;
             println!("已创建项目 {dir}/");
             println!("  - 编辑 {} 定义内容", sts2mod_core::PROJECT_FILE);
@@ -114,6 +127,15 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Deploy => {
             let cfg = config::load_merged(Some(&cli.project))?;
             pipeline::deploy(&cli.project, &cfg, &mut log)
+        }
+        Cmd::Publish { skip_deploy } => {
+            let cfg = config::load_merged(Some(&cli.project))?;
+            pipeline::publish(&cli.project, &cfg, skip_deploy, &mut log)
+        }
+        Cmd::Import { mod_dir, out_dir } => {
+            let summary = sts2mod_core::import::import_mod(&mod_dir, &out_dir, &mut log)?;
+            println!("{summary}");
+            Ok(())
         }
         Cmd::Doctor => {
             let cfg = config::load_merged(Some(&cli.project))?;
@@ -164,7 +186,8 @@ fn set_key(cfg: &mut config::ToolConfig, key: &str, value: Option<String>) -> Re
             }
             cfg.pck_arch = value;
         }
-        other => bail!("未知配置项: {other}（可用: sts2Dir / godotExe / dotnet / pckArch）"),
+        "modUploaderExe" => cfg.mod_uploader_exe = value,
+        other => bail!("未知配置项: {other}（可用: sts2Dir / godotExe / dotnet / pckArch / modUploaderExe）"),
     }
     Ok(())
 }

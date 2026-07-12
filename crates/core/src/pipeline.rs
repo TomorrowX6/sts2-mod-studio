@@ -216,6 +216,165 @@ pub fn deploy(project_dir: &Path, cfg: &ToolConfig, log: LogFn) -> Result<()> {
     Ok(())
 }
 
+/// 项目内的工坊工作区目录名（结构与官方 ModUploader 的 workspace 一致，
+/// mod_id.txt 由上传器在首次发布后写入，应随项目提交）。
+pub const WORKSHOP_DIR: &str = "workshop";
+
+/// Steam 对预览图的硬性限制。
+const PREVIEW_IMAGE_MAX: u64 = 1024 * 1024;
+
+/// 组装 `<project>/workshop/` 工作区：content/ 三件套 + image.png + workshop.json。
+/// artifacts_dir 是已部署的 `<游戏>/mods/<id>/` 目录。返回工作区路径。
+pub fn assemble_workshop_workspace(
+    project: &Project,
+    project_dir: &Path,
+    artifacts_dir: &Path,
+    log: LogFn,
+) -> Result<PathBuf> {
+    let id = &project.manifest.id;
+    let ws = project_dir.join(WORKSHOP_DIR);
+    let content = ws.join("content");
+    if content.exists() {
+        std::fs::remove_dir_all(&content).with_context(|| format!("清理 {} 失败", content.display()))?;
+    }
+    std::fs::create_dir_all(&content)?;
+
+    // mod 三件套：清单 + dll + pck（deploy 的产物）
+    for file in [format!("{id}.json"), format!("{id}.dll"), format!("{id}.pck")] {
+        let src = artifacts_dir.join(&file);
+        if !src.exists() {
+            bail!(
+                "缺少 {}——请先 deploy 成功再发布（或检查游戏 mods 目录）",
+                src.display()
+            );
+        }
+        std::fs::copy(&src, content.join(&file))
+            .with_context(|| format!("复制 {file} 失败"))?;
+        log(&format!("工坊内容 {file}"));
+    }
+
+    // 预览图：Steam 要求名为 image.png 且 < 1MB
+    let workshop = project.workshop.clone().unwrap_or_default();
+    let image_dst = ws.join("image.png");
+    match &workshop.preview_image {
+        Some(rel) => {
+            let src = project_dir.join(rel);
+            if !src.exists() {
+                bail!("预览图不存在: {rel}");
+            }
+            let size = std::fs::metadata(&src)?.len();
+            if size >= PREVIEW_IMAGE_MAX {
+                bail!(
+                    "预览图 {rel} 为 {:.0} KB，超过 Steam 的 1MB 上限，请压缩后重试",
+                    size as f64 / 1024.0
+                );
+            }
+            std::fs::copy(&src, &image_dst)?;
+            log(&format!("预览图 {rel} -> image.png"));
+        }
+        None => {
+            if !image_dst.exists() {
+                bail!(
+                    "未设置预览图（workshop.previewImage），且 {} 不存在。\
+                     Steam 要求必须有 png 预览图（< 1MB）",
+                    image_dst.display()
+                );
+            }
+            log("使用工作区里已有的 image.png");
+        }
+    }
+
+    // workshop.json：tags/changeNote 每次写入；其余字段仅在明确设置或首次发布时写入，
+    // 避免每次上传覆盖工坊网页上手工改过的内容（官方 README 约定：缺省字段=保持不变）
+    let first_upload = !ws.join("mod_id.txt").exists();
+    let mut json = serde_json::Map::new();
+    json.insert("tags".into(), serde_json::json!(workshop.tags));
+    json.insert("changeNote".into(), serde_json::json!(workshop.change_note));
+    if !workshop.dependencies.is_empty() {
+        json.insert("dependencies".into(), serde_json::json!(workshop.dependencies));
+    }
+    if !workshop.content_descriptors.is_empty() {
+        json.insert("contentDescriptors".into(), serde_json::json!(workshop.content_descriptors));
+    }
+    let title = workshop.title.clone().or_else(|| first_upload.then(|| project.manifest.name.clone()));
+    if let Some(t) = title {
+        json.insert("title".into(), serde_json::json!(t));
+    }
+    let description = workshop
+        .description
+        .clone()
+        .or_else(|| first_upload.then(|| project.manifest.description.clone()));
+    if let Some(d) = description {
+        json.insert("description".into(), serde_json::json!(d));
+    }
+    let visibility = workshop
+        .visibility
+        .clone()
+        .or_else(|| first_upload.then(|| "private".to_string()));
+    if let Some(v) = visibility {
+        json.insert("visibility".into(), serde_json::json!(v));
+    }
+    std::fs::write(
+        ws.join("workshop.json"),
+        serde_json::to_string_pretty(&serde_json::Value::Object(json))? + "\n",
+    )?;
+
+    if first_upload {
+        log("首次发布：workshop.json 含标题/描述/可见性（默认 private）");
+        if workshop.tags.is_empty() {
+            log("警告: tags 为空——工坊标签上传后无法在网页修改，建议先填好（如 Cards / schinese）");
+        }
+    } else {
+        log("更新发布：仅写入 tags/changeNote 等明确设置的字段，其余保持工坊现值");
+    }
+    Ok(ws)
+}
+
+/// 发布到创意工坊：默认先 deploy，再组装工作区并调用官方 ModUploader。
+/// 需要 Steam 客户端在运行且已登录。
+pub fn publish(project_dir: &Path, cfg: &ToolConfig, skip_deploy: bool, log: LogFn) -> Result<()> {
+    let uploader = cfg
+        .mod_uploader_exe
+        .as_ref()
+        .context("未配置 ModUploader 路径，请先 sts2mod config set modUploaderExe <ModUploader可执行文件>\n（下载: https://github.com/megacrit/sts2-mod-uploader/releases）")?;
+    let uploader_path = Path::new(uploader);
+    if !uploader_path.exists() {
+        bail!("ModUploader 路径不存在: {uploader}");
+    }
+
+    if skip_deploy {
+        log("跳过构建（--skip-deploy），使用现有部署产物");
+    } else {
+        deploy(project_dir, cfg, log)?;
+    }
+
+    let project = Project::load(project_dir)?;
+    let id = project.manifest.id.clone();
+    let mods_dir = cfg.mods_dir().context("未配置游戏目录(sts2Dir)，发布需要 deploy 产物")?;
+    let ws = assemble_workshop_workspace(&project, project_dir, &mods_dir.join(&id), log)?;
+
+    // 上传器依赖其目录里的 steam_api 库与 steam_appid.txt，用其所在目录作为工作目录
+    let mut cmd = Command::new(uploader_path);
+    cmd.arg("upload").arg("-w").arg(&ws);
+    if let Some(dir) = uploader_path.parent() {
+        cmd.current_dir(dir);
+    }
+    log("调用官方 ModUploader（需要 Steam 客户端正在运行）…");
+    run_streamed(cmd, log).context("ModUploader 上传失败")?;
+
+    match std::fs::read_to_string(ws.join("mod_id.txt")) {
+        Ok(mod_id) => {
+            let mod_id = mod_id.trim();
+            log(&format!(
+                "发布成功: https://steamcommunity.com/sharedfiles/filedetails/?id={mod_id}"
+            ));
+            log("提醒: 首次发布默认 private，到工坊页面改可见性；workshop/mod_id.txt 请随项目保存");
+        }
+        Err(_) => log("上传器未生成 mod_id.txt，请检查上传器输出确认是否成功"),
+    }
+    Ok(())
+}
+
 pub struct Check {
     pub name: String,
     pub ok: bool,
@@ -303,6 +462,22 @@ pub fn doctor(project_dir: Option<&Path>, cfg: &ToolConfig) -> Vec<Check> {
             detail: "未配置 sts2Dir".into(),
         }),
     }
+
+    checks.push(match &cfg.mod_uploader_exe {
+        Some(exe) if Path::new(exe).exists() => {
+            Check { name: "ModUploader".into(), ok: true, detail: exe.clone() }
+        }
+        Some(exe) => Check {
+            name: "ModUploader".into(),
+            ok: false,
+            detail: format!("路径不存在: {exe}"),
+        },
+        None => Check {
+            name: "ModUploader".into(),
+            ok: true,
+            detail: "未配置（仅发布工坊需要，可选）".into(),
+        },
+    });
 
     if let Some(dir) = project_dir {
         checks.push(match Project::load(dir) {

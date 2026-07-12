@@ -57,6 +57,20 @@ pub fn content_id(mod_id: &str, category: &str, class_name: &str) -> String {
     format!("{}_{}_{}", mod_prefix(mod_id), category, upper_snake(class_name))
 }
 
+/// UPPER_SNAKE → PascalCase（TAKE_DAMAGE → TakeDamage）。
+/// 注意大小写不可逆：HP_UP → HpUp（原类名若是 HPUp 会丢失缩写大小写）。
+pub fn pascal_of(key: &str) -> String {
+    key.split('_')
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let mut c = p.chars();
+            let head = c.next().unwrap().to_ascii_uppercase();
+            let tail: String = c.map(|ch| ch.to_ascii_lowercase()).collect();
+            format!("{head}{tail}")
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

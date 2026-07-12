@@ -1202,18 +1202,7 @@ fn scene_stem(class_name: &str) -> String {
     ids::upper_snake(class_name).to_lowercase()
 }
 
-/// UPPER_SNAKE → PascalCase（TAKE_DAMAGE → TakeDamage）。
-fn pascal_of(key: &str) -> String {
-    key.split('_')
-        .filter(|p| !p.is_empty())
-        .map(|p| {
-            let mut c = p.chars();
-            let head = c.next().unwrap().to_ascii_uppercase();
-            let tail: String = c.map(|ch| ch.to_ascii_lowercase()).collect();
-            format!("{head}{tail}")
-        })
-        .collect()
-}
+use crate::ids::pascal_of;
 
 /// UPPER_SNAKE → camelCase（BASIC_ATTACK → basicAttack）。
 fn camel_of(key: &str) -> String {

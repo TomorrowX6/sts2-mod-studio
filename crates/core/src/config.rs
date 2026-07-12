@@ -20,6 +20,8 @@ pub struct ToolConfig {
     pub dotnet: Option<String>,
     /// pck 导出架构：x86_64（默认）或 msil（兼容 mac）。
     pub pck_arch: Option<String>,
+    /// 官方 ModUploader 可执行文件路径（megacrit/sts2-mod-uploader）。
+    pub mod_uploader_exe: Option<String>,
 }
 
 pub const LOCAL_CONFIG_FILE: &str = "sts2mod.local.json";
@@ -68,6 +70,9 @@ pub fn load_merged(project_dir: Option<&Path>) -> Result<ToolConfig> {
         }
         if local.pck_arch.is_some() {
             cfg.pck_arch = local.pck_arch;
+        }
+        if local.mod_uploader_exe.is_some() {
+            cfg.mod_uploader_exe = local.mod_uploader_exe;
         }
     }
     Ok(cfg)

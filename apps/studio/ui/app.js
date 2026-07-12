@@ -193,6 +193,42 @@ function collectManifest() {
   m.minGameVersion = $("m-minGameVersion").value.trim();
   m.description = $("m-description").value;
   m.affectsGameplay = $("m-affects").checked;
+  collectWorkshop();
+}
+
+function collectWorkshop() {
+  const preview = $("w-previewImage").value.trim();
+  const tags = $("w-tags").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const changeNote = $("w-changeNote").value;
+  const visibility = $("w-visibility").value;
+  if (!preview && !tags.length && !changeNote.trim() && !visibility) {
+    delete state.project.workshop;
+    return;
+  }
+  state.project.workshop = {
+    ...(state.project.workshop || {}),
+    previewImage: preview || undefined,
+    tags,
+    changeNote,
+    visibility: visibility || undefined,
+  };
+}
+
+// 导入已有 mod（部署产物目录）为新项目
+async function importMod() {
+  const modDir = await dialog.open({ directory: true, title: "选择已有 mod 目录（含 <id>.json，如游戏 mods/<id>）" });
+  if (!modDir) return;
+  const outDir = await dialog.open({ directory: true, title: "选择一个空文件夹存放导入的项目" });
+  if (!outDir) return;
+  try {
+    const summary = await invoke("import_mod", { modDir, outDir });
+    logLine(summary);
+    state.project = await invoke("load_project", { dir: outDir });
+    state.dir = outDir;
+    autoSelectFirst();
+    renderAll();
+    alert(summary);
+  } catch (e) { alert("导入失败: " + e); }
 }
 
 // ---------- 渲染 ----------
@@ -210,6 +246,11 @@ function renderAll() {
   $("m-minGameVersion").value = m.minGameVersion;
   $("m-description").value = m.description || "";
   $("m-affects").checked = !!m.affectsGameplay;
+  const w = state.project.workshop || {};
+  $("w-previewImage").value = w.previewImage || "";
+  $("w-tags").value = (w.tags || []).join(", ");
+  $("w-changeNote").value = w.changeNote || "";
+  $("w-visibility").value = w.visibility || "";
   renderLists();
   renderEditor();
 }
@@ -930,7 +971,8 @@ async function runStep(step) {
   if (!state.dir) return;
   await saveProject();
   $("busy").classList.remove("hidden");
-  for (const id of ["btn-generate", "btn-build", "btn-pack", "btn-deploy"]) $(id).disabled = true;
+  const buttons = ["btn-generate", "btn-build", "btn-pack", "btn-deploy", "btn-publish"];
+  for (const id of buttons) $(id).disabled = true;
   try {
     await invoke("run_step", { dir: state.dir, step });
     logLine("=== " + step + " 完成 ===");
@@ -938,7 +980,7 @@ async function runStep(step) {
     logLine("=== 失败: " + e + " ===");
   } finally {
     $("busy").classList.add("hidden");
-    for (const id of ["btn-generate", "btn-build", "btn-pack", "btn-deploy"]) $(id).disabled = false;
+    for (const id of buttons) $(id).disabled = false;
   }
 }
 
@@ -950,6 +992,7 @@ async function loadConfig() {
   $("cfg-godotExe").value = cfg.godotExe || "";
   $("cfg-dotnet").value = cfg.dotnet || "";
   $("cfg-pckArch").value = cfg.pckArch || "";
+  $("cfg-modUploaderExe").value = cfg.modUploaderExe || "";
 }
 
 async function saveConfig() {
@@ -958,6 +1001,7 @@ async function saveConfig() {
     godotExe: $("cfg-godotExe").value.trim() || null,
     dotnet: $("cfg-dotnet").value.trim() || null,
     pckArch: $("cfg-pckArch").value || null,
+    modUploaderExe: $("cfg-modUploaderExe").value.trim() || null,
   };
   await invoke("set_config", { cfg });
   logLine("配置已保存");
@@ -980,11 +1024,32 @@ async function runDoctor() {
 window.addEventListener("DOMContentLoaded", () => {
   $("btn-open").onclick = openProject;
   $("btn-new").onclick = newProject;
+  $("btn-import").onclick = importMod;
   $("btn-save").onclick = saveProject;
   $("btn-generate").onclick = () => runStep("generate");
   $("btn-build").onclick = () => runStep("build");
   $("btn-pack").onclick = () => runStep("pack");
   $("btn-deploy").onclick = () => runStep("deploy");
+  $("btn-publish").onclick = () => {
+    if (confirm("发布到创意工坊？将先执行一键部署，然后调用官方 ModUploader（需要 Steam 正在运行）。")) {
+      runStep("publish");
+    }
+  };
+  $("w-pick").onclick = async () => {
+    if (!state.dir) return;
+    const src = await dialog.open({
+      title: "选择预览图（png，<1MB）",
+      filters: [{ name: "PNG 图片", extensions: ["png"] }],
+    });
+    if (!src) return;
+    try {
+      const rel = await invoke("import_asset", {
+        dir: state.dir, category: "workshop", className: "Preview", src,
+      });
+      $("w-previewImage").value = rel;
+      logLine("已导入预览图: " + rel);
+    } catch (e) { alert("导入失败: " + e); }
+  };
   $("btn-settings").onclick = () => $("settings").classList.toggle("hidden");
   $("btn-save-config").onclick = saveConfig;
   $("btn-doctor").onclick = runDoctor;

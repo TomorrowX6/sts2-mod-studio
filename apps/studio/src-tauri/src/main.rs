@@ -43,7 +43,7 @@ fn new_project(dir: String) -> CmdResult<serde_json::Value> {
     std::fs::create_dir_all(target.join(sts2mod_core::ASSETS_DIR).join("cards")).map_err(err_str)?;
     std::fs::create_dir_all(target.join(sts2mod_core::CUSTOM_SRC_DIR)).map_err(err_str)?;
     project.save(&target).map_err(|e| format!("{e:#}"))?;
-    std::fs::write(target.join(".gitignore"), "build/\nsts2mod.local.json\n").map_err(err_str)?;
+    std::fs::write(target.join(".gitignore"), "build/\nworkshop/content/\nsts2mod.local.json\n").map_err(err_str)?;
     serde_json::to_value(&project).map_err(err_str)
 }
 
@@ -64,6 +64,7 @@ async fn run_step(window: tauri::Window, dir: String, step: String) -> CmdResult
                 .and_then(|_| pipeline::build(&project_dir, &cfg, &mut log)),
             "pack" => pipeline::pack(&project_dir, &cfg, &mut log).map(|_| ()),
             "deploy" => pipeline::deploy(&project_dir, &cfg, &mut log),
+            "publish" => pipeline::publish(&project_dir, &cfg, false, &mut log),
             other => Err(anyhow::anyhow!("未知步骤: {other}")),
         };
         result.map_err(|e| format!("{e:#}"))
@@ -92,7 +93,7 @@ fn doctor(dir: Option<String>) -> CmdResult<Vec<CheckDto>> {
 /// 把用户选择的图片复制进项目 assets/{category}/{ClassName}.{ext}，返回相对路径。
 #[tauri::command]
 fn import_asset(dir: String, category: String, class_name: String, src: String) -> CmdResult<String> {
-    const CATEGORIES: &[&str] = &["cards", "relics", "powers", "potions", "monsters", "events", "characters"];
+    const CATEGORIES: &[&str] = &["cards", "relics", "powers", "potions", "monsters", "events", "characters", "workshop"];
     if !CATEGORIES.contains(&category.as_str()) {
         return Err(format!("未知素材类别: {category}"));
     }
@@ -112,6 +113,25 @@ fn import_asset(dir: String, category: String, class_name: String, src: String) 
     }
     std::fs::copy(src_path, &dst).map_err(|e| format!("复制图片失败: {e}"))?;
     Ok(rel)
+}
+
+/// 导入已有 mod（部署产物目录）为 out_dir 下的新项目，日志走 pipeline-log 事件。
+#[tauri::command]
+async fn import_mod(window: tauri::Window, mod_dir: String, out_dir: String) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut log = |line: &str| {
+            let _ = window.emit("pipeline-log", line);
+        };
+        let summary = sts2mod_core::import::import_mod(
+            Path::new(&mod_dir),
+            Path::new(&out_dir),
+            &mut log,
+        )
+        .map_err(|e| format!("{e:#}"))?;
+        Ok(summary.to_string())
+    })
+    .await
+    .map_err(err_str)?
 }
 
 #[tauri::command]
@@ -134,6 +154,7 @@ fn main() {
             run_step,
             doctor,
             import_asset,
+            import_mod,
             get_config,
             set_config
         ])

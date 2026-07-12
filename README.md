@@ -131,6 +131,41 @@ M4 新增 **怪物 / 遭遇 / 事件 / 人物**（`monsters` / `encounters` / `e
   tscn 场景由模板生成；`characters.json` 人称代词按性别给默认值；先古对话
   `ancients.json` 生成占位文本（发布前建议润色）。
 
+## 发布到创意工坊
+
+对接官方 [sts2-mod-uploader](https://github.com/megacrit/sts2-mod-uploader)：
+
+```bash
+sts2mod config set modUploaderExe "D:/tools/sts2-mod-uploader/ModUploader.exe"
+sts2mod publish              # deploy + 组装 workshop/ 工作区 + 调用上传器
+sts2mod publish --skip-deploy  # 跳过构建，直接上传现有产物
+```
+
+- 发布信息写在项目文件的 `workshop` 段：`previewImage`（png、<1MB，Steam 硬性要求）、
+  `tags`（**上传后无法在网页修改**，常用 `Cards`/`Characters`/`QoL`/`schinese`/`English`）、
+  `changeNote`、`visibility`（仅首次写入，默认 private）、`dependencies`（工坊条目数字 ID）
+- 工作区在 `<项目>/workshop/`（结构与官方 uploader 一致）；首次发布会生成
+  `workshop/mod_id.txt`——**请随项目提交**，它标识你的工坊条目
+- 更新发布只写入 tags/changeNote 等明确设置的字段，工坊网页上手工改过的标题、
+  描述等不会被覆盖（官方约定：缺省字段=保持不变）
+- 需要 Steam 客户端正在运行；成功后打印工坊链接
+
+## 导入已有 mod
+
+把一个已部署的 mod（游戏 `mods/<id>/` 或工坊订阅目录，含 `<id>.json` + `<id>.pck`）
+反向导入为可编辑项目：
+
+```bash
+sts2mod import "D:/.../mods/SomeMod" ./SomeModProject
+```
+
+能恢复：清单、全部本地化文本（卡牌/遗物/能力/药水会按 RitsuLib 键规则反推成
+内容条目）、pck 里的图片（Godot `.ctex` 无损纹理自动还原为 webp/png）。
+**不能恢复：C# 逻辑**——效果/数值/触发器在 dll 里不可逆，导入后为默认值，
+需在编辑器里重填。怪物/事件等复杂内容不做反推，原始本地化文件保留在
+`assets/imported/localization/` 供参考。自研 pck 解析器支持 Godot 4.4+ 的
+PCK 格式版本 3（对 Godot 4.5.1 真实导出逐字节验证）。
+
 ## 桌面应用
 
 ```bash
@@ -140,6 +175,22 @@ cargo run -p sts2mod-studio
 打开/新建项目 → 表单编辑清单、卡牌、数值、效果、双语文本 → 底部一键部署，日志实时输出。
 工具链设置存全局配置（`~/.config/sts2mod/config.json` 或 `%APPDATA%/sts2mod`），
 项目目录下可用 `sts2mod.local.json` 覆盖。
+
+## 验证状态（2026-07-12，Linux 开发机）
+
+M5（工坊发布 / 导入）已验证：
+
+- workshop.json 字段与工作区结构对官方 sts2-mod-uploader **源码**核对
+  （ModConfig.cs / UploadCommand.cs / 模板）：`content/`、`image.png`（<1MB）、
+  可见性四值、`upload -w <目录> [-i id]`、缺省字段不覆盖等
+- pck 解析器对 Godot 4.5.1 真实导出的 pck 逐字节验证（格式 v3：目录在尾部、
+  路径无 res:// 前缀、偏移相对 fileBase）；`.ctex` 无损纹理还原为 webp 且
+  round-trip（导入的项目可直接 generate）
+- 测试 fixture `crates/core/tests/fixtures/TestMod/` 即真实导出的 pck
+
+M5 待真机确认：`ModUploader.exe upload` 全流程（需要 Windows + Steam 登录 +
+接受工坊协议），中文教程描述的 `workspace.json`/`image.jpg` 为旧版说法，
+以本工具生成的 `workshop.json`/`image.png` 为准（与官方源码一致）。
 
 ## 验证状态（2026-07-11，Linux 开发机）
 
@@ -187,4 +238,4 @@ M4 待真机确认的推断点：
 - [x] M2 遗物 / 能力 / 药水编辑器、图片一键导入、extraCode 逃生舱
 - [x] M3 效果积木扩展：8 种新积木（格挡/治疗/直伤/金币/音效/特效/条件/循环，支持嵌套）、能力新触发器
 - [x] M4 怪物 / 遭遇 / 事件 / 人物向导（内置 tscn 模板、事件多页面、人物三池自动生成）
-- [ ] M5 工坊上传（对接官方 sts2-mod-uploader）、导入已有 mod
+- [x] M5 工坊上传（`sts2mod publish` 对接官方 sts2-mod-uploader）、导入已有 mod（pck 反向解析）

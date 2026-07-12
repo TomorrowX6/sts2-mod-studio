@@ -10,6 +10,7 @@
     <strong>STS2 Mod Studio</strong>
     <button id="btn-open">打开项目…</button>
     <button id="btn-new">新建项目…</button>
+    <button id="btn-import">导入 mod…</button>
     <button id="btn-save" disabled>保存</button>
     <span id="project-path" class="muted"></span>
     <span class="spacer"></span>
@@ -28,6 +29,7 @@
           <option value="msil">msil（兼容 mac）</option>
         </select>
       </label>
+      <label>ModUploader 路径 <input id="cfg-modUploaderExe" placeholder="…/ModUploader.exe（发布工坊用，可选）" /></label>
     </div>
     <button id="btn-save-config">保存配置</button>
     <button id="btn-doctor">环境自检</button>
@@ -46,6 +48,24 @@
         <label class="checkline"><input type="checkbox" id="m-affects" /> 影响多人玩法</label>
       </div>
       <label>描述 <textarea id="m-description" rows="2"></textarea></label>
+      <details id="workshop-box">
+        <summary>创意工坊发布</summary>
+        <div class="row">
+          <label>预览图（png，&lt;1MB）<input id="w-previewImage" placeholder="assets/workshop/Preview.png" /></label>
+          <button id="w-pick" class="small">选择图片…</button>
+        </div>
+        <label>标签（逗号分隔，上传后不可改）<input id="w-tags" placeholder="Cards, schinese" /></label>
+        <label>更新说明 <textarea id="w-changeNote" rows="2"></textarea></label>
+        <label>首次可见性
+          <select id="w-visibility">
+            <option value="">private（默认）</option>
+            <option value="public">public</option>
+            <option value="unlisted">unlisted</option>
+            <option value="friends_only">friends_only</option>
+          </select>
+        </label>
+        <p class="muted">标题/描述首次发布取自清单；之后请到工坊网页修改，这里留空不覆盖。</p>
+      </details>
       <div id="content-lists"></div>
     </section>
 
@@ -60,6 +80,7 @@
       <button id="btn-build">生成+编译</button>
       <button id="btn-pack">导出 pck</button>
       <button id="btn-deploy" class="primary">一键部署</button>
+      <button id="btn-publish">发布工坊</button>
       <span id="busy" class="muted hidden">运行中…</span>
     </div>
     <pre id="log"></pre>

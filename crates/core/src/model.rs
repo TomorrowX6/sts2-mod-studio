@@ -34,6 +34,38 @@ pub struct Project {
     pub events: Vec<EventDef>,
     #[serde(default)]
     pub characters: Vec<CharacterDef>,
+    /// 创意工坊发布信息（`sts2mod publish` 用）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workshop: Option<WorkshopDef>,
+}
+
+/// 创意工坊发布配置。对应官方 ModUploader 的 workshop.json——
+/// 除 tags/changeNote 外，留空的字段发布时不写入，保持工坊网页上的现值不被覆盖。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WorkshopDef {
+    /// 预览图（项目内相对路径，必须是 png 且 < 1MB；工坊硬性要求）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_image: Option<String>,
+    /// 工坊标签（上传后无法在网页修改，务必先想好）。
+    /// 常用：Characters / Cards / Relics / QoL / schinese / English。
+    pub tags: Vec<String>,
+    /// 本次更新说明（每次发布都会写入）。
+    pub change_note: String,
+    /// 可见性：private / public / unlisted / friends_only。
+    /// 仅首次发布写入，之后请在工坊网页改（避免覆盖）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
+    /// 工坊标题/描述。留空 = 首次发布用清单的 name/description，之后不覆盖。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// 依赖的工坊条目 ID（工坊 URL 里的数字）。
+    pub dependencies: Vec<u64>,
+    /// 成人内容描述符：nudity / frequent_violence / adult_only /
+    /// gratuitous_nudity / general_mature。
+    pub content_descriptors: Vec<String>,
 }
 
 /// 对应游戏要求的 `{modid}.json` 清单（camelCase 为工具内格式，
@@ -678,7 +710,31 @@ impl Project {
         for c in &self.characters {
             check("人物", &c.class_name, &[])?;
         }
+        self.validate_workshop()?;
         self.validate_m4()
+    }
+
+    fn validate_workshop(&self) -> Result<()> {
+        let Some(w) = &self.workshop else { return Ok(()) };
+        if let Some(v) = &w.visibility {
+            const VIS: &[&str] = &["private", "public", "unlisted", "friends_only"];
+            if !VIS.contains(&v.as_str()) {
+                bail!("workshop.visibility 必须是 {} 之一（当前: {v}）", VIS.join("/"));
+            }
+        }
+        const DESCRIPTORS: &[&str] =
+            &["nudity", "frequent_violence", "adult_only", "gratuitous_nudity", "general_mature"];
+        for d in &w.content_descriptors {
+            if !DESCRIPTORS.contains(&d.as_str()) {
+                bail!("workshop.contentDescriptors 含未知值 {d}（可用: {}）", DESCRIPTORS.join("/"));
+            }
+        }
+        if let Some(img) = &w.preview_image {
+            if !img.to_ascii_lowercase().ends_with(".png") {
+                bail!("workshop.previewImage 必须是 png 文件（Steam 要求 image.png，当前: {img}）");
+            }
+        }
+        Ok(())
     }
 
     /// 怪物 / 遭遇 / 事件 / 人物的结构与引用校验。
@@ -941,5 +997,6 @@ pub fn starter_project(id: &str, name: &str) -> Project {
         encounters: vec![],
         events: vec![],
         characters: vec![],
+        workshop: None,
     }
 }

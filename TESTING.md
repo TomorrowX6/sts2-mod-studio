@@ -424,3 +424,60 @@ cargo run --release -p sts2mod-studio
 4. 怪物招式 `applyPower` 给目标时的 `targets[0]`（本轮测试项未覆盖，自定义怪物用到时留意）
 5. 先古对话 `THE_ARCHITECT.talk.<类名蛇形>.N-attack` 键的前缀形式（占位文本若不生效会显示键名）
 6. 事件 `CreatureCmd.Damage(ctx, creature, DynamicVars.X, null, null)` 单目标重载（教程原文，应当稳）
+
+---
+
+# M5 增量测试（工坊发布 / 导入已有 mod）
+
+## 11. 发布到创意工坊（需要 Steam 登录）
+
+1. 下载官方上传器并解压：https://github.com/megacrit/sts2-mod-uploader/releases
+2. 配置路径并确认自检通过：
+
+```powershell
+sts2mod config set modUploaderExe "D:/tools/sts2-mod-uploader/ModUploader.exe"
+sts2mod doctor    # ModUploader 一项应 ✔
+```
+
+3. 在 StudioTest 项目的 `project.stsmod.json` 顶层加：
+
+```json
+  "workshop": {
+    "previewImage": "assets/workshop/Preview.png",
+    "tags": ["Cards", "schinese"],
+    "changeNote": "首次上传测试",
+    "visibility": "private"
+  }
+```
+
+4. 放一张 `assets/workshop/Preview.png`（png、小于 1MB）。
+5. Steam 客户端保持运行，然后 `sts2mod publish`。
+
+| # | 检查点 | 期望 |
+|---|--------|------|
+| 15 | 发布过程 | 先走完整 deploy，然后打印"调用官方 ModUploader"，上传器日志滚动，最后打印工坊链接 |
+| 16 | `workshop/` 目录 | `content/` 里有 `StudioTest.json/.dll/.pck` 三件套、`image.png`、`workshop.json`（含 title/visibility）、新生成的 `mod_id.txt` |
+| 17 | 工坊页面 | 打开打印的链接：标题=清单 name、预览图正确、可见性 private、标签 Cards+schinese |
+| 18 | 再次 `sts2mod publish --skip-deploy`（改 changeNote 后） | 这次 `workshop.json` 里**没有** title/visibility 字段；工坊页面手工改过的描述不被覆盖，changelog 出现新说明 |
+| 19 | UI | 设置里填 ModUploader 路径；侧栏"创意工坊发布"填标签/说明/选图；底部"发布工坊"按钮全流程可用 |
+
+## 12. 导入已有 mod
+
+用刚部署好的 StudioTest 当作"别人的 mod"来测：
+
+```powershell
+sts2mod import "D:/.../Slay the Spire 2/mods/StudioTest" ./ReImported
+```
+
+| # | 检查点 | 期望 |
+|---|--------|------|
+| 20 | 摘要输出 | 清单 v0.1.0；卡牌/遗物/能力/药水数量与原项目一致；图片与本地化文件数 > 0 |
+| 21 | `ReImported/project.stsmod.json` | 双语文本完整；卡图指向 `assets/imported/images/...`（webp）；效果/数值为默认值（留空） |
+| 22 | 再生成 | `sts2mod generate --project ReImported` 无错误 |
+| 23 | UI | 「导入 mod…」按钮选目录后自动打开导入的项目 |
+
+## 13. M5 重点观察点
+
+1. `ModUploader.exe upload` 需要先在 Steam 接受一次创意工坊条款，否则报错——属于 Steam 侧流程，不是工具问题
+2. 上传器对 `-w` 传绝对路径的兼容性（源码为 DirectoryInfo，应没问题；若报错请反馈，可改为相对路径+工作目录方案）
+3. 真实第三方 mod（非本工具生成）的导入：pck 里若有 VRAM 压缩纹理会跳过并警告，属预期
