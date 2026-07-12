@@ -1,3 +1,3 @@
-target/
+/target*/
 # Tauri 构建时自动生成
 apps/studio/src-tauri/gen/schemas/
