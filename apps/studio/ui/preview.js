@@ -140,19 +140,26 @@ function pickText(item, field) {
 // ---------- 卡牌整卡预览 ----------
 
 // 标题缎带横幅（参照游戏截图：银色缎带、两端外翻带 V 形缺口）
-const RIBBON_SVG = `<svg viewBox="0 0 600 120" preserveAspectRatio="none">
+const RIBBON_SVG = `<svg viewBox="0 0 600 190" preserveAspectRatio="none">
   <defs>
     <linearGradient id="rb-band" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#f2efe8"/>
       <stop offset="0.55" stop-color="#d9d4c9"/>
-      <stop offset="1" stop-color="#b7b1a4"/>
+      <stop offset="1" stop-color="#b0aa9c"/>
+    </linearGradient>
+    <linearGradient id="rb-wing" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c4beb1"/>
+      <stop offset="1" stop-color="#8d8678"/>
     </linearGradient>
   </defs>
-  <polygon points="2,30 78,10 78,106 2,120 26,73" fill="#9d968a" stroke="#6b6458" stroke-width="3"/>
-  <polygon points="598,30 522,10 522,106 598,120 574,73" fill="#9d968a" stroke="#6b6458" stroke-width="3"/>
-  <polygon points="78,10 100,26 78,44" fill="#67604f"/>
-  <polygon points="522,10 500,26 522,44" fill="#67604f"/>
-  <path d="M70,8 Q300,-4 530,8 L530,104 Q300,116 70,104 Z" fill="url(#rb-band)" stroke="#7c7566" stroke-width="3.5"/>
+  <!-- 下垂尾翼（带 V 形缺口） -->
+  <polygon points="96,20 12,48 40,92 10,144 96,112" fill="url(#rb-wing)" stroke="#645d4f" stroke-width="3.5" stroke-linejoin="round"/>
+  <polygon points="504,20 588,48 560,92 590,144 504,112" fill="url(#rb-wing)" stroke="#645d4f" stroke-width="3.5" stroke-linejoin="round"/>
+  <!-- 翻折阴影（横幅端点下方） -->
+  <polygon points="78,96 104,112 78,128" fill="#5d5647"/>
+  <polygon points="522,96 496,112 522,128" fill="#5d5647"/>
+  <!-- 主横幅（微拱） -->
+  <path d="M78,8 Q300,-4 522,8 L522,98 Q300,110 78,98 Z" fill="url(#rb-band)" stroke="#7c7566" stroke-width="3.5"/>
 </svg>`;
 
 // 费用宝石（红宝石多面体 + 内嵌金圆）

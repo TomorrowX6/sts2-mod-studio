@@ -421,31 +421,32 @@ button.cmd.accent:hover { background: var(--accent-hover); }
 .cp-stage { overflow: visible; }
 .cp-ribbon {
   position: absolute;
-  left: -5.5%; right: -5.5%;
-  top: 1.2%;
-  height: 13.5%;
+  left: -5%; right: -5%;
+  top: 0.8%;
+  height: 20%;
   z-index: 2;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.4));
+  pointer-events: none;
 }
 .cp-ribbon svg { width: 100%; height: 100%; display: block; }
 .cp-title {
   position: absolute;
-  left: 12%; right: 12%;
-  top: 3.4%;
-  height: 9%;
+  left: 13%; right: 13%;
+  top: 2.2%;
+  height: 8.6%;
   z-index: 3;
   display: flex; align-items: center; justify-content: center;
   color: #423a2c;
   font-weight: 800;
-  font-size: 16px;
-  letter-spacing: 1px;
+  font-size: 17px;
+  letter-spacing: 1.5px;
   white-space: nowrap; overflow: hidden;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 .cp-gem {
   position: absolute;
-  left: -6%; top: -3.5%;
-  width: 23%;
+  left: -5.5%; top: -3%;
+  width: 21.5%;
   aspect-ratio: 1;
   z-index: 4;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
@@ -458,12 +459,12 @@ button.cmd.accent:hover { background: var(--accent-hover); }
   height: 88%;
   display: flex; align-items: center; justify-content: center;
   color: #4a3208;
-  font-size: 24px;
+  font-size: 23px;
   font-weight: 800;
 }
 .cp-type {
   position: absolute;
-  left: 50%; top: 53.2%;
+  left: 50%; top: 54%;
   transform: translate(-50%, -50%);
   z-index: 2;
   background: linear-gradient(#e3dfd5, #bdb7aa);
@@ -473,12 +474,12 @@ button.cmd.accent:hover { background: var(--accent-hover); }
   color: #2e2a22;
   font-size: 12px;
   font-weight: 700;
-  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 .cp-desc {
   position: absolute;
   left: 11%; right: 11%;
-  top: 57%; bottom: 8%;
+  top: 58%; bottom: 7.5%;
   display: flex; align-items: center; justify-content: center;
   color: #f3ece0;
   font-size: 14px;
