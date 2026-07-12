@@ -1,0 +1,5 @@
+{
+  "M6_REAL_TEST_POWER_DRAW_STRENGTH.title": "Draw Strength",
+  "M6_REAL_TEST_POWER_DRAW_STRENGTH.description": "Gain Strength whenever a card is drawn.",
+  "M6_REAL_TEST_POWER_DRAW_STRENGTH.smartDescription": "Whenever a card is drawn, gain [blue]{Amount}[/blue] Strength."
+}

@@ -1,0 +1,17 @@
+{
+  "id": "M6RealTest",
+  "name": "M6 真机验证包",
+  "author": "sts2-mod-studio",
+  "description": "M6 关键词、标签、命名数值与悬浮提示真机验证",
+  "version": "0.1.0",
+  "min_game_version": "0.107.1",
+  "has_pck": true,
+  "has_dll": true,
+  "dependencies": [
+    {
+      "id": "STS2-RitsuLib",
+      "min_version": "0.4.54"
+    }
+  ],
+  "affects_gameplay": true
+}

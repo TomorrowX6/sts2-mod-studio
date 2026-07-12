@@ -1,0 +1,36 @@
+<Project Sdk="Godot.NET.Sdk/4.5.1">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>true</ImplicitUsings>
+    <LangVersion>13.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>M6RealTest</AssemblyName>
+
+    <!-- 由 sts2mod 构建时通过 -p:Sts2Dir=... 传入，也可在此写死 -->
+    <Sts2DataDirName Condition="'$(Sts2DataDirName)' == ''">data_sts2_windows_x86_64</Sts2DataDirName>
+    <Sts2DataDir>$(Sts2Dir)/$(Sts2DataDirName)</Sts2DataDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="sts2">
+      <HintPath>$(Sts2DataDir)/sts2.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <Reference Include="0Harmony">
+      <HintPath>$(Sts2DataDir)/0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <PackageReference Include="STS2.RitsuLib" Version="*" />
+  </ItemGroup>
+
+  <!-- 构建后把 dll 与清单复制到游戏 mods 目录 -->
+  <Target Name="CopyMod" AfterTargets="PostBuildEvent" Condition="'$(Sts2Dir)' != '' And '$(IsInnerGodotExport)' != 'true'">
+    <Message Text="Copying mod to Slay the Spire 2 mods folder..." Importance="high" />
+    <MakeDir Directories="$(Sts2Dir)/mods/M6RealTest/" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(Sts2Dir)/mods/M6RealTest/" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/M6RealTest.json" DestinationFolder="$(Sts2Dir)/mods/M6RealTest/" />
+  </Target>
+</Project>
