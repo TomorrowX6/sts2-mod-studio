@@ -10,6 +10,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::codegen;
 use crate::config::ToolConfig;
+use crate::live;
 use crate::model::Project;
 
 pub type LogFn<'a> = &'a mut dyn FnMut(&str);
@@ -23,8 +24,13 @@ pub struct GenSummary {
 
 /// 生成源码树到 `<project>/build/godot`（整体重建，保证无陈旧文件）。
 pub fn generate(project_dir: &Path, log: LogFn) -> Result<GenSummary> {
+    generate_with(project_dir, false, log)
+}
+
+/// `live = true` 时生成实时模式源码（注入 Live 运行时，数值走 live.json）。
+pub fn generate_with(project_dir: &Path, live_mode: bool, log: LogFn) -> Result<GenSummary> {
     let project = Project::load(project_dir)?;
-    let out = codegen::generate(&project)?;
+    let out = codegen::generate_with(&project, &codegen::GenOptions { live: live_mode })?;
     let gen_dir = project_dir.join(crate::GEN_DIR);
 
     if gen_dir.exists() {
@@ -166,10 +172,42 @@ pub fn pack(project_dir: &Path, cfg: &ToolConfig, log: LogFn) -> Result<PathBuf>
 
 /// 一键：生成 + 编译 + 导出。成功后 mods 目录里就是完整可加载的 mod。
 pub fn deploy(project_dir: &Path, cfg: &ToolConfig, log: LogFn) -> Result<()> {
-    let summary = generate(project_dir, log)?;
+    deploy_impl(project_dir, cfg, false, log)
+}
+
+/// 实时部署：deploy 的实时模式版本（生成含 Live 运行时的构建，并写入 live.json 基线）。
+/// 之后保持游戏运行，用 push_live 推送数值/文本改动即可即时生效。
+pub fn deploy_live(project_dir: &Path, cfg: &ToolConfig, log: LogFn) -> Result<()> {
+    deploy_impl(project_dir, cfg, true, log)
+}
+
+fn deploy_impl(project_dir: &Path, cfg: &ToolConfig, live_mode: bool, log: LogFn) -> Result<()> {
+    let summary = generate_with(project_dir, live_mode, log)?;
     log(&format!("生成完成: {} 个文件, {} 个素材", summary.files, summary.copies));
     build(project_dir, cfg, log)?;
     pack(project_dir, cfg, log)?;
+    // live.json 与构建模式保持一致：实时构建写入基线，正式构建清掉残留
+    if let Some(mods) = cfg.mods_dir() {
+        let project = Project::load(project_dir)?;
+        let live_path = mods.join(&project.manifest.id).join(live::LIVE_FILE);
+        if live_mode {
+            let fp = live::live_fingerprint(&project);
+            let data = live::live_data(&project, &fp)?;
+            std::fs::write(&live_path, &data.json)
+                .with_context(|| format!("写入 {} 失败", live_path.display()))?;
+            log(&format!(
+                "实时数据已写入: {}（文本 {} 项 / 数值 {} 项）",
+                live_path.display(),
+                data.texts,
+                data.nums
+            ));
+            log("实时会话就绪：保持游戏运行，推送的数值/文本改动即时生效；");
+            log("  结构性改动（增删内容、改效果积木/触发器/图片等）仍需重新执行实时部署并重启游戏。");
+        } else if live_path.exists() {
+            let _ = std::fs::remove_file(&live_path);
+            log("已清除旧的实时数据 live.json（本次为正式构建）");
+        }
+    }
     if cfg.sts2_dir.is_some() {
         log("部署完成，启动游戏即可测试。获取类指令只能在战斗中使用：");
         let project = Project::load(project_dir)?;
@@ -214,6 +252,45 @@ pub fn deploy(project_dir: &Path, cfg: &ToolConfig, log: LogFn) -> Result<()> {
         log("未配置游戏目录，产物在 build/ 下，请手动复制到游戏 mods 文件夹");
     }
     Ok(())
+}
+
+/// push_live 的结果。
+pub struct LivePush {
+    /// 项目结构相对上次实时部署已变化：推送的 live.json 对结构性改动不生效，
+    /// 需要重新实时部署（并重启游戏）。
+    pub needs_deploy: bool,
+    /// 本次推送的本地化词条数 / 数值条数。
+    pub texts: usize,
+    pub nums: usize,
+}
+
+/// 推送实时数据：只重写 `mods/<id>/live.json`，不编译不导出（毫秒级）。
+/// 游戏里的 Live 运行时监视该文件，数值/文本改动即时生效。
+/// 保留上次实时部署写入的结构指纹作为基线，用于判断是否需要重新部署。
+pub fn push_live(project: &Project, cfg: &ToolConfig) -> Result<LivePush> {
+    project.validate()?;
+    let id = &project.manifest.id;
+    let mods = cfg.mods_dir().context("未配置游戏目录(sts2Dir)，实时推送需要部署目录")?;
+    let mod_dir = mods.join(id);
+    if !mod_dir.join(format!("{id}.dll")).exists() {
+        bail!("游戏 mods 目录中没有 {id}.dll——请先执行一次实时部署（deploy --live）");
+    }
+    let live_path = mod_dir.join(live::LIVE_FILE);
+    // 基线指纹 = 上次实时部署时的项目结构；文件缺失（如上次是正式构建）视为需要部署
+    let baseline = std::fs::read_to_string(&live_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("fingerprint").and_then(|f| f.as_str()).map(String::from))
+        .unwrap_or_default();
+    let current = live::live_fingerprint(project);
+    let data = live::live_data(project, &baseline)?;
+    std::fs::write(&live_path, &data.json)
+        .with_context(|| format!("写入 {} 失败", live_path.display()))?;
+    Ok(LivePush {
+        needs_deploy: baseline != current,
+        texts: data.texts,
+        nums: data.nums,
+    })
 }
 
 /// 项目内的工坊工作区目录名（结构与官方 ModUploader 的 workspace 一致，
@@ -344,6 +421,13 @@ pub fn publish(project_dir: &Path, cfg: &ToolConfig, skip_deploy: bool, log: Log
 
     if skip_deploy {
         log("跳过构建（--skip-deploy），使用现有部署产物");
+        // 实时模式构建含开发用运行时，不应发布到工坊
+        if project_dir.join(crate::GEN_DIR).join("Scripts/Live/Live.cs").exists() {
+            bail!(
+                "现有构建产物是实时模式（含 Live 运行时），不能直接发布。\
+                 请去掉 --skip-deploy 重新发布（会自动做正式构建）"
+            );
+        }
     } else {
         deploy(project_dir, cfg, log)?;
     }

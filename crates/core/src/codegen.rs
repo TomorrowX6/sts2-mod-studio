@@ -49,6 +49,15 @@ pub struct GenOutput {
     pub warnings: Vec<String>,
 }
 
+/// 生成选项。
+#[derive(Default)]
+pub struct GenOptions {
+    /// 实时模式：数值字面量改走 `Live.Int(路径, 字面量)`，并注入 Live 运行时
+    /// （监视 mods/<id>/live.json，数值/文本改动无需重启游戏）。
+    /// 仅用于开发迭代，发布构建必须为 false。
+    pub live: bool,
+}
+
 /// DynamicVar 的标准种类 → 游戏内对应的 Var 类与占位符名。
 const STANDARD_VAR_KINDS: &[&str] = &[
     "Damage", "Block", "Cards", "Energy", "Repeat", "Heal", "HpLoss", "MaxHp", "Gold", "Stars",
@@ -56,7 +65,21 @@ const STANDARD_VAR_KINDS: &[&str] = &[
 ];
 
 pub fn generate(project: &Project) -> Result<GenOutput> {
+    generate_with(project, &GenOptions::default())
+}
+
+pub fn generate_with(project: &Project, opts: &GenOptions) -> Result<GenOutput> {
+    let live = opts.live;
     project.validate()?;
+    if live {
+        // Live 运行时类与内容类同程序集：类名撞车会导致生成代码里的
+        // Live.Int 解析到内容类，编译失败——提前拦下。
+        for name in content_class_names(project) {
+            if name == "Live" {
+                bail!("实时模式下内容类名不能叫 Live（与实时运行时类冲突），请改名");
+            }
+        }
+    }
     let mut warnings = Vec::new();
     let mut files = Vec::new();
     let mut copies = Vec::new();
@@ -85,8 +108,14 @@ pub fn generate(project: &Project) -> Result<GenOutput> {
     });
     files.push(GeneratedFile {
         rel_path: "Scripts/Entry.cs".into(),
-        content: entry_cs(id, &ns),
+        content: entry_cs(id, &ns, live),
     });
+    if live {
+        files.push(GeneratedFile {
+            rel_path: "Scripts/Live/Live.cs".into(),
+            content: live_cs(&ns),
+        });
+    }
 
     // 图片素材：有则登记复制，无则提示走 RitsuLib 占位图
     let push_asset = |copies: &mut Vec<AssetCopy>,
@@ -134,28 +163,28 @@ pub fn generate(project: &Project) -> Result<GenOutput> {
     for card in &project.cards {
         files.push(GeneratedFile {
             rel_path: format!("Scripts/Cards/{}.cs", card.class_name).into(),
-            content: card_cs(project, card, &mut warnings)?,
+            content: card_cs(project, card, live, &mut warnings)?,
         });
         push_asset(&mut copies, &mut warnings, "卡牌", &card.class_name, "cards", &card.portrait);
     }
     for relic in &project.relics {
         files.push(GeneratedFile {
             rel_path: format!("Scripts/Relics/{}.cs", relic.class_name).into(),
-            content: relic_cs(project, relic, &mut warnings)?,
+            content: relic_cs(project, relic, live, &mut warnings)?,
         });
         push_asset(&mut copies, &mut warnings, "遗物", &relic.class_name, "relics", &relic.icon);
     }
     for power in &project.powers {
         files.push(GeneratedFile {
             rel_path: format!("Scripts/Powers/{}.cs", power.class_name).into(),
-            content: power_cs(project, power, &mut warnings)?,
+            content: power_cs(project, power, live, &mut warnings)?,
         });
         push_asset(&mut copies, &mut warnings, "能力", &power.class_name, "powers", &power.icon);
     }
     for potion in &project.potions {
         files.push(GeneratedFile {
             rel_path: format!("Scripts/Potions/{}.cs", potion.class_name).into(),
-            content: potion_cs(project, potion, &mut warnings)?,
+            content: potion_cs(project, potion, live, &mut warnings)?,
         });
         push_asset(&mut copies, &mut warnings, "药水", &potion.class_name, "potions", &potion.image);
     }
@@ -163,7 +192,7 @@ pub fn generate(project: &Project) -> Result<GenOutput> {
     for monster in &project.monsters {
         files.push(GeneratedFile {
             rel_path: format!("Scripts/Monsters/{}.cs", monster.class_name).into(),
-            content: monster_cs(project, monster, &mut warnings)?,
+            content: monster_cs(project, monster, live, &mut warnings)?,
         });
         if let Some(custom) = &monster.scene {
             // 自定义场景原样复制
@@ -207,7 +236,7 @@ pub fn generate(project: &Project) -> Result<GenOutput> {
     for ev in &project.events {
         files.push(GeneratedFile {
             rel_path: format!("Scripts/Events/{}.cs", ev.class_name).into(),
-            content: event_cs(project, ev, &mut warnings)?,
+            content: event_cs(project, ev, live, &mut warnings)?,
         });
         push_asset(&mut copies, &mut warnings, "事件", &ev.class_name, "events", &ev.image);
     }
@@ -218,7 +247,7 @@ pub fn generate(project: &Project) -> Result<GenOutput> {
         });
         files.push(GeneratedFile {
             rel_path: format!("Scripts/Characters/{}.cs", ch.class_name).into(),
-            content: character_cs(project, ch, &mut warnings)?,
+            content: character_cs(project, ch, live, &mut warnings)?,
         });
         for f in character_scenes(project, ch) {
             files.push(f);
@@ -252,10 +281,10 @@ pub fn generate(project: &Project) -> Result<GenOutput> {
         ));
     }
 
-    for (lang, file, content) in localization_files(project)? {
+    for ((lang, file), map) in localization_tables(project)? {
         files.push(GeneratedFile {
             rel_path: format!("{id}/localization/{lang}/{file}").into(),
-            content,
+            content: serde_json::to_string_pretty(&serde_json::Value::Object(map))? + "\n",
         });
     }
 
@@ -265,6 +294,20 @@ pub fn generate(project: &Project) -> Result<GenOutput> {
     });
 
     Ok(GenOutput { files, copies, warnings })
+}
+
+/// 项目中全部内容类名（live 模式下用于检查与运行时类的命名冲突）。
+fn content_class_names(project: &Project) -> Vec<&str> {
+    let mut names: Vec<&str> = Vec::new();
+    names.extend(project.cards.iter().map(|c| c.class_name.as_str()));
+    names.extend(project.relics.iter().map(|r| r.class_name.as_str()));
+    names.extend(project.powers.iter().map(|p| p.class_name.as_str()));
+    names.extend(project.potions.iter().map(|p| p.class_name.as_str()));
+    names.extend(project.monsters.iter().map(|m| m.class_name.as_str()));
+    names.extend(project.encounters.iter().map(|e| e.class_name.as_str()));
+    names.extend(project.events.iter().map(|e| e.class_name.as_str()));
+    names.extend(project.characters.iter().map(|c| c.class_name.as_str()));
+    names
 }
 
 /// 游戏要求的 `{modid}.json`（snake_case 字段）。
@@ -416,7 +459,12 @@ codesign/enable=false
     )
 }
 
-fn entry_cs(id: &str, ns: &str) -> String {
+fn entry_cs(id: &str, ns: &str, live: bool) -> String {
+    let live_init = if live {
+        "\n\n        // 实时模式：监视 live.json，数值/文本改动无需重启游戏（仅开发构建）\n        Live.Init();"
+    } else {
+        ""
+    };
     format!(
         r#"// 由 sts2mod 生成，勿手改（每次生成会覆盖）。自定义代码请放在项目的 src/ 目录。
 using System.Reflection;
@@ -437,7 +485,265 @@ public class Entry
     {{
         var assembly = Assembly.GetExecutingAssembly();
         RitsuLibFramework.EnsureGodotScriptsRegistered(assembly, Logger);
-        ModTypeDiscoveryHub.RegisterModAssembly(ModId, assembly);
+        ModTypeDiscoveryHub.RegisterModAssembly(ModId, assembly);{live_init}
+    }}
+}}
+"#
+    )
+}
+
+/// 实时模式运行时（仅 live 构建注入）。
+///
+/// 工作方式（全部走游戏/RitsuLib 公开 API，均经反编译核对）：
+/// - 监视部署目录里的 live.json（Studio/CLI 推送时重写该文件）
+/// - 文本：`LocTable.MergeWith` 并进游戏本地化表（语言切换后重新合并）
+/// - 数值：生成代码里的字面量经 `Live.Int(路径, 编译值)` 查询快照；
+///   场景树中本 mod 的卡牌/遗物/药水实例原地改 `DynamicVar.BaseValue`
+/// - 刷新：`RuntimeAssetRefreshCoordinator.Request` 让可见节点重绘
+fn live_cs(ns: &str) -> String {
+    format!(
+        r#"// 由 sts2mod 生成（实时模式构建专用；正式发布的构建不含本文件）。
+// 监视 mods/<id>/live.json：Studio / CLI 推送数值与文本改动后，无需重启游戏即可生效。
+using System.Text.Json;
+using Godot;
+using MegaCrit.Sts2.Core.Localization;
+using MegaCrit.Sts2.Core.Localization.DynamicVars;
+using MegaCrit.Sts2.Core.Nodes.Cards;
+using MegaCrit.Sts2.Core.Nodes.Potions;
+using MegaCrit.Sts2.Core.Nodes.Relics;
+using STS2RitsuLib.Scaffolding.Content.Patches;
+
+namespace {ns};
+
+public static class Live
+{{
+    private sealed class Snapshot
+    {{
+        // 语言 → 表名 → 键 → 文本
+        public readonly Dictionary<string, Dictionary<string, Dictionary<string, string>>> Loc =
+            new(StringComparer.Ordinal);
+        // 数值路径（与生成代码里的 Live.Int 调用一一对应）→ 当前值
+        public readonly Dictionary<string, int> Num = new(StringComparer.Ordinal);
+    }}
+
+    private static volatile Snapshot _snapshot = new();
+    private static FileSystemWatcher? _watcher;
+    private static System.Threading.Timer? _debounce;
+    private static string _path = "";
+    private static bool _subscribed;
+
+    /// 生成代码中的数值查找：live.json 里有该路径则用实时值，否则用编译时字面量。
+    public static int Int(string path, int fallback)
+        => _snapshot.Num.TryGetValue(path, out var v) ? v : fallback;
+
+    public static void Init()
+    {{
+        try
+        {{
+            var dir = Path.GetDirectoryName(typeof(Live).Assembly.Location);
+            if (string.IsNullOrEmpty(dir))
+                return;
+            _path = Path.Combine(dir, "live.json");
+            _debounce = new System.Threading.Timer(
+                _ => Reload(), null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+            _watcher = new FileSystemWatcher(dir, "live.json")
+            {{
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
+            }};
+            _watcher.Changed += OnFileEvent;
+            _watcher.Created += OnFileEvent;
+            _watcher.Renamed += OnFileEvent;
+            _watcher.EnableRaisingEvents = true;
+            TryLoad();
+            Entry.Logger.Info("[Live] 实时预览已启动，监视 " + _path);
+            _ = ApplyWhenReadyAsync();
+        }}
+        catch (Exception ex)
+        {{
+            Entry.Logger.Warn("[Live] 初始化失败（不影响 mod 正常运行）: " + ex.Message);
+        }}
+    }}
+
+    private static void OnFileEvent(object sender, FileSystemEventArgs e)
+    {{
+        // 一次保存会触发多个文件事件：合并 200ms 内的触发，只重载一次
+        _debounce?.Change(200, System.Threading.Timeout.Infinite);
+    }}
+
+    private static void Reload()
+    {{
+        if (TryLoad())
+            Callable.From(ApplyToGame).CallDeferred();
+    }}
+
+    private static bool TryLoad()
+    {{
+        for (var attempt = 0; attempt < 3; attempt++)
+        {{
+            try
+            {{
+                if (!File.Exists(_path))
+                    return false;
+                _snapshot = Parse(File.ReadAllText(_path));
+                return true;
+            }}
+            catch (IOException)
+            {{
+                System.Threading.Thread.Sleep(100); // 写入方尚未释放文件，稍后重试
+            }}
+            catch (Exception ex)
+            {{
+                Entry.Logger.Warn("[Live] live.json 解析失败，保留上一份数据: " + ex.Message);
+                return false;
+            }}
+        }}
+        return false;
+    }}
+
+    private static Snapshot Parse(string json)
+    {{
+        var snap = new Snapshot();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("num", out var num) && num.ValueKind == JsonValueKind.Object)
+            foreach (var p in num.EnumerateObject())
+                if (p.Value.ValueKind == JsonValueKind.Number && p.Value.TryGetInt32(out var v))
+                    snap.Num[p.Name] = v;
+        if (root.TryGetProperty("loc", out var loc) && loc.ValueKind == JsonValueKind.Object)
+            foreach (var lang in loc.EnumerateObject())
+            {{
+                if (lang.Value.ValueKind != JsonValueKind.Object)
+                    continue;
+                var tables = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+                foreach (var table in lang.Value.EnumerateObject())
+                {{
+                    if (table.Value.ValueKind != JsonValueKind.Object)
+                        continue;
+                    var entries = new Dictionary<string, string>(StringComparer.Ordinal);
+                    foreach (var entry in table.Value.EnumerateObject())
+                        if (entry.Value.ValueKind == JsonValueKind.String)
+                            entries[entry.Name] = entry.Value.GetString()!;
+                    tables[table.Name] = entries;
+                }}
+                snap.Loc[lang.Name] = tables;
+            }}
+        return snap;
+    }}
+
+    /// 游戏启动早期 LocManager 尚未初始化：等它就绪后应用一次启动前的改动。
+    private static async Task ApplyWhenReadyAsync()
+    {{
+        for (var i = 0; i < 240 && LocManager.Instance == null; i++)
+            await Task.Delay(500);
+        Callable.From(ApplyToGame).CallDeferred();
+    }}
+
+    /// 主线程：文本并进本地化表、可见实例数值原地更新、请求节点重绘。
+    private static void ApplyToGame()
+    {{
+        try
+        {{
+            var snap = _snapshot;
+            ApplyLoc(snap);
+            RefreshVisibleModels(snap);
+            RuntimeAssetRefreshCoordinator.Request(RuntimeAssetRefreshScope.AllSafe);
+            Entry.Logger.Info($"[Live] 已应用实时数据（数值 {{snap.Num.Count}} 项）");
+        }}
+        catch (Exception ex)
+        {{
+            Entry.Logger.Warn("[Live] 应用实时数据失败: " + ex.Message);
+        }}
+    }}
+
+    private static void ApplyLoc(Snapshot snap)
+    {{
+        var lm = LocManager.Instance;
+        if (lm == null)
+            return;
+        if (!_subscribed)
+        {{
+            // 切换语言会重建本地化表，合并结果会丢失：订阅后重新合并
+            lm.SubscribeToLocaleChange(() => Callable.From(ApplyToGame).CallDeferred());
+            _subscribed = true;
+        }}
+        // 与游戏的回退语义一致：先铺英语词条，再用当前语言覆盖
+        var merged = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        Overlay(merged, snap.Loc.GetValueOrDefault("eng"));
+        Overlay(merged, snap.Loc.GetValueOrDefault(lm.Language));
+        foreach (var (table, entries) in merged)
+        {{
+            if (entries.Count == 0)
+                continue;
+            try
+            {{
+                lm.GetTable(table).MergeWith(entries);
+            }}
+            catch (Exception)
+            {{
+                // 当前语言没有该表：忽略
+            }}
+        }}
+    }}
+
+    private static void Overlay(
+        Dictionary<string, Dictionary<string, string>> target,
+        Dictionary<string, Dictionary<string, string>>? source)
+    {{
+        if (source == null)
+            return;
+        foreach (var (table, entries) in source)
+        {{
+            if (!target.TryGetValue(table, out var bucket))
+                target[table] = bucket = new(StringComparer.Ordinal);
+            foreach (var (key, text) in entries)
+                bucket[key] = text;
+        }}
+    }}
+
+    /// 场景树中本 mod 的可见卡牌/遗物/药水：原地更新 DynamicVars 基础值。
+    /// （新创建的实例天然读到实时值；这里补齐已存在的可见实例）
+    private static void RefreshVisibleModels(Snapshot snap)
+    {{
+        if (Engine.GetMainLoop() is not SceneTree tree || !GodotObject.IsInstanceValid(tree.Root))
+            return;
+        var stack = new Stack<Node>();
+        stack.Push(tree.Root);
+        while (stack.Count > 0)
+        {{
+            var node = stack.Pop();
+            if (!GodotObject.IsInstanceValid(node))
+                continue;
+            switch (node)
+            {{
+                case NCard {{ Model: {{ }} card }} when IsOurs(card):
+                    ApplyVars(snap, "card." + card.GetType().Name, card.DynamicVars, card.CurrentUpgradeLevel);
+                    break;
+                case NRelic {{ Model: {{ }} relic }} when IsOurs(relic):
+                    ApplyVars(snap, "relic." + relic.GetType().Name, relic.DynamicVars, 0);
+                    break;
+                case NPotion {{ Model: {{ }} potion }} when IsOurs(potion):
+                    ApplyVars(snap, "potion." + potion.GetType().Name, potion.DynamicVars, 0);
+                    break;
+            }}
+            for (var i = node.GetChildCount() - 1; i >= 0; i--)
+                stack.Push(node.GetChild(i));
+        }}
+    }}
+
+    private static bool IsOurs(object model)
+        => model.GetType().Assembly == typeof(Live).Assembly;
+
+    private static void ApplyVars(Snapshot snap, string prefix, DynamicVarSet vars, int upgradeLevel)
+    {{
+        foreach (var (name, dynVar) in vars)
+        {{
+            if (!snap.Num.TryGetValue($"{{prefix}}.var.{{name}}", out var baseValue))
+                continue;
+            var upgrade = snap.Num.GetValueOrDefault($"{{prefix}}.var.{{name}}.up", 0);
+            var next = (decimal)(baseValue + upgradeLevel * upgrade);
+            if (dynVar.BaseValue != next)
+                dynVar.BaseValue = next; // 公开 setter，自带 ResetToBase
+        }}
     }}
 }}
 "#
@@ -469,16 +775,20 @@ fn var_name(v: &VarDef) -> String {
     }
 }
 
-fn var_ctor(v: &VarDef, mod_id: &str) -> Result<String> {
+/// `live_prefix`：实时模式下宿主的路径前缀（如 `card.FireBall`），
+/// 数值基础值包装成 `Live.Int("{前缀}.var.{名}", 字面量)`。
+fn var_ctor(v: &VarDef, mod_id: &str, live_prefix: Option<&str>) -> Result<String> {
+    let value_path = live_prefix.map(|pre| format!("{pre}.var.{}", var_name(v)));
+    let value = live_int(value_path.as_deref(), v.value);
     if v.kind == "Power" {
         let power = v.power.as_deref().unwrap_or_default();
-        return Ok(format!("new PowerVar<{power}>({})", v.value));
+        return Ok(format!("new PowerVar<{power}>({value})"));
     }
     if v.kind == "Custom" {
         // 自定义命名数值（教程"添加新动态变量"一节）：
         // ModCardVars.Int + 可选 WithSharedTooltip（键与 static_hover_tips.json 对应）
         let name = v.name.as_deref().unwrap_or_default();
-        let mut expr = format!("ModCardVars.Int(\"{name}\", {})", v.value);
+        let mut expr = format!("ModCardVars.Int(\"{name}\", {value})");
         if !v.tooltip.is_empty() {
             expr.push_str(&format!("\n            .WithSharedTooltip(\"{}\")", tooltip_key(mod_id, name)));
         }
@@ -492,9 +802,9 @@ fn var_ctor(v: &VarDef, mod_id: &str) -> Result<String> {
         props.push("ValueProp.Move".into());
     }
     if props.is_empty() {
-        Ok(format!("new {}Var({})", v.kind, v.value))
+        Ok(format!("new {}Var({value})", v.kind))
     } else {
-        Ok(format!("new {}Var({}, {})", v.kind, v.value, props.join(" | ")))
+        Ok(format!("new {}Var({value}, {})", v.kind, props.join(" | ")))
     }
 }
 
@@ -536,22 +846,45 @@ struct EffectCtx<'a> {
     event_style: bool,
     /// 该宿主是否有 DynamicVars（怪物没有，数值只能用固定值）。
     vars_allowed: bool,
+    /// 实时模式下本效果序列的数值路径前缀（如 `card.FireBall.onPlay`），
+    /// None = 非实时模式。路径规则与 live::live_numbers 严格一致。
+    live_prefix: Option<String>,
+}
+
+/// 实时模式的数值表达式：有路径时包装成 `Live.Int("路径", 字面量)`。
+fn live_int(path: Option<&str>, value: impl std::fmt::Display) -> String {
+    match path {
+        Some(p) => format!("Live.Int(\"{p}\", {value})"),
+        None => value.to_string(),
+    }
+}
+
+/// 序列前缀 + 下标 → 单个效果的路径。
+fn child_path(prefix: Option<&str>, index: usize) -> Option<String> {
+    prefix.map(|p| format!("{p}.{index}"))
+}
+
+/// 效果路径 + 字段名 → 字段路径（如 `….2.amount`）。
+fn field_path(path: &Option<String>, field: &str) -> Option<String> {
+    path.as_ref().map(|p| format!("{p}.{field}"))
 }
 
 /// 数值表达式：优先 var 访问器，其次字面量，最后默认 var 名（或上下文默认值）。
+/// 字面量在实时模式下包装 Live.Int（`amount_path` = 本效果的 `.amount` 路径）。
 fn amount_of(
     ctx: &EffectCtx,
     var: &Option<String>,
     amount: &Option<i64>,
     default_var: &str,
     accessor: &str,
+    amount_path: &Option<String>,
 ) -> Result<String> {
     if var.is_some() && !ctx.vars_allowed {
         bail!("{}: 该宿主没有 DynamicVars，数值请用固定值 amount", ctx.label);
     }
     Ok(match (var, amount) {
         (Some(v), _) => format!("{}{accessor}", var_accessor(v)),
-        (None, Some(n)) => n.to_string(),
+        (None, Some(n)) => live_int(amount_path.as_deref(), n),
         (None, None) => match ctx.default_amount {
             Some(expr) => expr.to_string(),
             None => {
@@ -572,7 +905,12 @@ fn props_expr(props: &[String], default: &str) -> String {
     }
 }
 
-fn effect_code(ctx: &EffectCtx, effect: &Effect, warnings: &mut Vec<String>) -> Result<String> {
+fn effect_code(
+    ctx: &EffectCtx,
+    path: Option<String>,
+    effect: &Effect,
+    warnings: &mut Vec<String>,
+) -> Result<String> {
     Ok(match effect {
         Effect::Damage { var, amount } => {
             if ctx.monster_attack {
@@ -583,8 +921,9 @@ fn effect_code(ctx: &EffectCtx, effect: &Effect, warnings: &mut Vec<String>) -> 
                 let Some(n) = amount else {
                     bail!("{}: 怪物的 damage 积木需要固定值 amount", ctx.label);
                 };
+                let amt = live_int(field_path(&path, "amount").as_deref(), n);
                 format!(
-                    "await DamageCmd.Attack({n})\n    .FromMonster(this)\n    .WithAttackerFx(null, AttackSfx)\n    .WithHitFx(\"vfx/vfx_attack_blunt\")\n    .Execute(null);"
+                    "await DamageCmd.Attack({amt})\n    .FromMonster(this)\n    .WithAttackerFx(null, AttackSfx)\n    .WithHitFx(\"vfx/vfx_attack_blunt\")\n    .Execute(null);"
                 )
             } else {
                 let Some(target) = ctx.attack_target else {
@@ -595,7 +934,7 @@ fn effect_code(ctx: &EffectCtx, effect: &Effect, warnings: &mut Vec<String>) -> 
                 };
                 let amt = match (var, amount) {
                     (Some(v), _) => format!("{}.BaseValue", var_accessor(v)),
-                    (None, Some(n)) => n.to_string(),
+                    (None, Some(n)) => live_int(field_path(&path, "amount").as_deref(), n),
                     (None, None) => format!("{}.BaseValue", var_accessor("Damage")),
                 };
                 format!(
@@ -623,7 +962,7 @@ fn effect_code(ctx: &EffectCtx, effect: &Effect, warnings: &mut Vec<String>) -> 
                     }
                     format!("{}.IntValue", var_accessor(v))
                 }
-                (None, Some(n)) => n.to_string(),
+                (None, Some(n)) => live_int(field_path(&path, "amount").as_deref(), n),
                 (None, None) => match ctx.default_amount {
                     Some(expr) => expr.to_string(),
                     None => {
@@ -655,14 +994,14 @@ fn effect_code(ctx: &EffectCtx, effect: &Effect, warnings: &mut Vec<String>) -> 
             )
         }
         Effect::Block { var, amount } => {
-            let amt = amount_of(ctx, var, amount, "Block", ".BaseValue")?;
+            let amt = amount_of(ctx, var, amount, "Block", ".BaseValue", &field_path(&path, "amount"))?;
             format!(
                 "await CreatureCmd.GainBlock({}, {amt}, ValueProp.Move, null);",
                 ctx.self_creature
             )
         }
         Effect::Heal { var, amount } => {
-            let amt = amount_of(ctx, var, amount, "Heal", ".BaseValue")?;
+            let amt = amount_of(ctx, var, amount, "Heal", ".BaseValue", &field_path(&path, "amount"))?;
             format!("await CreatureCmd.Heal({}, {amt});", ctx.self_creature)
         }
         Effect::DirectDamage { var, amount, props, to_self } => {
@@ -673,7 +1012,7 @@ fn effect_code(ctx: &EffectCtx, effect: &Effect, warnings: &mut Vec<String>) -> 
                 }
                 let amt = match (var, amount) {
                     (Some(v), _) => var_accessor(v),
-                    (None, Some(n)) => n.to_string(),
+                    (None, Some(n)) => live_int(field_path(&path, "amount").as_deref(), n),
                     (None, None) => var_accessor("Damage"),
                 };
                 format!(
@@ -681,7 +1020,7 @@ fn effect_code(ctx: &EffectCtx, effect: &Effect, warnings: &mut Vec<String>) -> 
                     ctx.choice_ctx, ctx.self_creature
                 )
             } else {
-                let amt = amount_of(ctx, var, amount, "Damage", ".BaseValue")?;
+                let amt = amount_of(ctx, var, amount, "Damage", ".BaseValue", &field_path(&path, "amount"))?;
                 let target = if *to_self {
                     ctx.self_creature.to_string()
                 } else {
@@ -702,20 +1041,21 @@ fn effect_code(ctx: &EffectCtx, effect: &Effect, warnings: &mut Vec<String>) -> 
             let Some(player) = ctx.gold_player else {
                 bail!("{}: 该宿主上下文中没有 Player，无法使用 gainGold 积木", ctx.label);
             };
-            let amt = amount_of(ctx, var, amount, "Gold", ".IntValue")?;
+            let amt = amount_of(ctx, var, amount, "Gold", ".IntValue", &field_path(&path, "amount"))?;
             format!("await PlayerCmd.GainGold({amt}, {player});")
         }
         Effect::LoseGold { var, amount } => {
             if !ctx.event_style {
                 bail!("{}: loseGold 积木仅事件可用", ctx.label);
             }
-            let amt = amount_of(ctx, var, amount, "Gold", ".BaseValue")?;
+            let amt = amount_of(ctx, var, amount, "Gold", ".BaseValue", &field_path(&path, "amount"))?;
             format!("await PlayerCmd.LoseGold({amt}, Owner!, GoldLossType.Stolen);")
         }
         Effect::RewardCards { count } => {
             if !ctx.event_style {
                 bail!("{}: rewardCards 积木仅事件可用", ctx.label);
             }
+            let count = live_int(field_path(&path, "count").as_deref(), count);
             format!(
                 "await RewardsCmd.OfferCustom(Owner!, [new CardReward(CardCreationOptions.ForNonCombatWithDefaultOdds([Owner!.Character.CardPool]), {count}, Owner)]);"
             )
@@ -744,30 +1084,36 @@ fn effect_code(ctx: &EffectCtx, effect: &Effect, warnings: &mut Vec<String>) -> 
             format!("VfxCmd.PlayOnCreature({target}, \"{}\");", path.replace('"', ""))
         }
         Effect::If { when, then, otherwise } => {
-            let then_body = render_block(ctx, then, warnings)?;
+            let then_body = render_block(ctx, field_path(&path, "then"), then, warnings)?;
             let mut code = format!("if ({})\n{{\n{then_body}\n}}", when.trim());
             if !otherwise.is_empty() {
-                let else_body = render_block(ctx, otherwise, warnings)?;
+                let else_body = render_block(ctx, field_path(&path, "else"), otherwise, warnings)?;
                 code.push_str(&format!("\nelse\n{{\n{else_body}\n}}"));
             }
             code
         }
         Effect::Repeat { times, body } => {
-            let inner = render_block(ctx, body, warnings)?;
+            let times = live_int(field_path(&path, "times").as_deref(), times);
+            let inner = render_block(ctx, field_path(&path, "do"), body, warnings)?;
             format!("for (var i = 0; i < {times}; i++)\n{{\n{inner}\n}}")
         }
         Effect::Custom { code } => code.trim_end().to_string(),
     })
 }
 
-/// 嵌套块体：相对缩进 4 空格（供 if/repeat 使用）。
-fn render_block(ctx: &EffectCtx, effects: &[Effect], warnings: &mut Vec<String>) -> Result<String> {
+/// 嵌套块体：相对缩进 4 空格（供 if/repeat 使用）。`list_path` 为子序列路径前缀。
+fn render_block(
+    ctx: &EffectCtx,
+    list_path: Option<String>,
+    effects: &[Effect],
+    warnings: &mut Vec<String>,
+) -> Result<String> {
     if effects.is_empty() {
         return Ok("    // （空）".to_string());
     }
     let mut parts = Vec::new();
-    for e in effects {
-        let code = effect_code(ctx, e, warnings)?;
+    for (i, e) in effects.iter().enumerate() {
+        let code = effect_code(ctx, child_path(list_path.as_deref(), i), e, warnings)?;
         parts.push(
             code.lines()
                 .map(|l| if l.is_empty() { l.to_string() } else { format!("    {l}") })
@@ -778,11 +1124,11 @@ fn render_block(ctx: &EffectCtx, effects: &[Effect], warnings: &mut Vec<String>)
     Ok(parts.join("\n"))
 }
 
-/// 把效果序列渲染成方法体（8 空格基础缩进）。
+/// 把效果序列渲染成方法体（8 空格基础缩进）。路径前缀取 ctx.live_prefix。
 fn render_effects(ctx: &EffectCtx, effects: &[Effect], warnings: &mut Vec<String>) -> Result<String> {
     let mut parts = Vec::new();
-    for e in effects {
-        let code = effect_code(ctx, e, warnings)?;
+    for (i, e) in effects.iter().enumerate() {
+        let code = effect_code(ctx, child_path(ctx.live_prefix.as_deref(), i), e, warnings)?;
         parts.push(
             code.lines()
                 .map(|l| if l.is_empty() { l.to_string() } else { format!("        {l}") })
@@ -809,11 +1155,12 @@ fn render_extra_code(extra: &Option<String>) -> String {
     }
 }
 
-fn card_cs(project: &Project, card: &CardDef, warnings: &mut Vec<String>) -> Result<String> {
+fn card_cs(project: &Project, card: &CardDef, live: bool, warnings: &mut Vec<String>) -> Result<String> {
     let id = &project.manifest.id;
     let ns = project.namespace();
     let class = &card.class_name;
     let pool = pool_type(&card.pool);
+    let live_host: Option<String> = live.then(|| format!("card.{class}"));
 
     let portrait_ext = card
         .portrait
@@ -824,7 +1171,7 @@ fn card_cs(project: &Project, card: &CardDef, warnings: &mut Vec<String>) -> Res
     let mut vars_src = String::new();
     for (i, v) in card.vars.iter().enumerate() {
         let sep = if i + 1 < card.vars.len() { "," } else { "" };
-        writeln!(vars_src, "        {}{sep}", var_ctor(v, id)?).unwrap();
+        writeln!(vars_src, "        {}{sep}", var_ctor(v, id, live_host.as_deref())?).unwrap();
     }
 
     let has_target = !matches!(card.target.as_str(), "None" | "Self");
@@ -843,6 +1190,7 @@ fn card_cs(project: &Project, card: &CardDef, warnings: &mut Vec<String>) -> Res
         choice_ctx: "choiceContext",
         event_style: false,
         vars_allowed: true,
+        live_prefix: live_host.as_ref().map(|p| format!("{p}.onPlay")),
     };
     let on_play = if card.on_play.is_empty() {
         if card.card_type == "Attack" {
@@ -862,7 +1210,14 @@ fn card_cs(project: &Project, card: &CardDef, warnings: &mut Vec<String>) -> Res
     } else {
         let body = upgrades
             .iter()
-            .map(|v| format!("        {}.UpgradeValueBy({});", var_accessor(&var_name(v)), v.upgrade))
+            .map(|v| {
+                let up_path = live_host.as_ref().map(|p| format!("{p}.var.{}.up", var_name(v)));
+                format!(
+                    "        {}.UpgradeValueBy({});",
+                    var_accessor(&var_name(v)),
+                    live_int(up_path.as_deref(), v.upgrade)
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
         format!("\n    // 升级效果\n    protected override void OnUpgrade()\n    {{\n{body}\n    }}\n")
@@ -959,7 +1314,7 @@ namespace {ns}.Cards;
 [RegisterCard(typeof({pool}))]
 public class {class} : ModCardTemplate
 {{
-    private const int energyCost = {cost};
+    {cost_decl}
     private const CardType type = CardType.{card_type};
     private const CardRarity rarity = CardRarity.{rarity};
     private const TargetType targetType = TargetType.{target};
@@ -975,7 +1330,14 @@ public class {class} : ModCardTemplate
     }}
 {on_play}{on_upgrade}{extra}}}
 "#,
-        cost = card.energy_cost,
+        // 实时模式下费用走属性（每次创建实例时读取），非实时保持 const
+        cost_decl = match &live_host {
+            Some(pre) => format!(
+                "private static int energyCost => Live.Int(\"{pre}.cost\", {});",
+                card.energy_cost
+            ),
+            None => format!("private const int energyCost = {};", card.energy_cost),
+        },
         card_type = card.card_type,
         rarity = card.rarity,
         target = card.target,
@@ -1048,6 +1410,7 @@ fn render_triggers(
     class_name: &str,
     triggers: &[crate::model::TriggerDef],
     specs: &[TriggerSpec],
+    live_host: Option<&str>,
     warnings: &mut Vec<String>,
 ) -> Result<String> {
     let mut seen = std::collections::HashSet::new();
@@ -1083,6 +1446,7 @@ fn render_triggers(
             choice_ctx: "choiceContext",
             event_style: false,
             vars_allowed: true,
+            live_prefix: live_host.map(|pre| format!("{pre}.trigger.{}", t.trigger)),
         };
         let body = render_effects(&ctx, &t.effects, warnings)?;
         out.push_str(&format!(
@@ -1097,14 +1461,14 @@ fn render_triggers(
 }
 
 /// CanonicalVars 属性块（vars 为空时返回空串）。
-fn render_canonical_vars(vars: &[VarDef], mod_id: &str) -> Result<String> {
+fn render_canonical_vars(vars: &[VarDef], mod_id: &str, live_host: Option<&str>) -> Result<String> {
     if vars.is_empty() {
         return Ok(String::new());
     }
     let mut src = String::new();
     for (i, v) in vars.iter().enumerate() {
         let sep = if i + 1 < vars.len() { "," } else { "" };
-        writeln!(src, "        {}{sep}", var_ctor(v, mod_id)?).unwrap();
+        writeln!(src, "        {}{sep}", var_ctor(v, mod_id, live_host)?).unwrap();
     }
     Ok(format!(
         "\n    // 基础数值\n    protected override IEnumerable<DynamicVar> CanonicalVars => [\n{src}    ];\n"
@@ -1122,16 +1486,18 @@ fn ext_of(path: &str) -> &str {
         .unwrap_or("png")
 }
 
-fn relic_cs(project: &Project, relic: &crate::model::RelicDef, warnings: &mut Vec<String>) -> Result<String> {
+fn relic_cs(project: &Project, relic: &crate::model::RelicDef, live: bool, warnings: &mut Vec<String>) -> Result<String> {
     let id = &project.manifest.id;
     let ns = project.namespace();
     let class = &relic.class_name;
+    let live_host: Option<String> = live.then(|| format!("relic.{class}"));
     let pool = match relic.pool.as_str() {
         "Shared" => "SharedRelicPool".to_string(),
         other => other.to_string(),
     };
     let ext = asset_ext(&relic.icon);
-    let triggers = render_triggers("遗物", class, &relic.triggers, RELIC_TRIGGERS, warnings)?;
+    let triggers =
+        render_triggers("遗物", class, &relic.triggers, RELIC_TRIGGERS, live_host.as_deref(), warnings)?;
     Ok(format!(
         r#"// 由 sts2mod 生成，勿手改（每次生成会覆盖）。自定义代码请放在项目的 src/ 目录。
 using Godot;
@@ -1167,17 +1533,19 @@ public class {class} : ModRelicTemplate
 {vars}{triggers}{extra}}}
 "#,
         rarity = relic.rarity,
-        vars = render_canonical_vars(&relic.vars, id)?,
+        vars = render_canonical_vars(&relic.vars, id, live_host.as_deref())?,
         extra = render_extra_code(&relic.extra_code),
     ))
 }
 
-fn power_cs(project: &Project, power: &crate::model::PowerDef, warnings: &mut Vec<String>) -> Result<String> {
+fn power_cs(project: &Project, power: &crate::model::PowerDef, live: bool, warnings: &mut Vec<String>) -> Result<String> {
     let id = &project.manifest.id;
     let ns = project.namespace();
     let class = &power.class_name;
+    let live_host: Option<String> = live.then(|| format!("power.{class}"));
     let ext = asset_ext(&power.icon);
-    let triggers = render_triggers("能力", class, &power.triggers, POWER_TRIGGERS, warnings)?;
+    let triggers =
+        render_triggers("能力", class, &power.triggers, POWER_TRIGGERS, live_host.as_deref(), warnings)?;
     Ok(format!(
         r#"// 由 sts2mod 生成，勿手改（每次生成会覆盖）。自定义代码请放在项目的 src/ 目录。
 using MegaCrit.Sts2.Core.Combat;
@@ -1214,10 +1582,11 @@ public class {class} : ModPowerTemplate
     ))
 }
 
-fn potion_cs(project: &Project, potion: &crate::model::PotionDef, warnings: &mut Vec<String>) -> Result<String> {
+fn potion_cs(project: &Project, potion: &crate::model::PotionDef, live: bool, warnings: &mut Vec<String>) -> Result<String> {
     let id = &project.manifest.id;
     let ns = project.namespace();
     let class = &potion.class_name;
+    let live_host: Option<String> = live.then(|| format!("potion.{class}"));
     let pool = match potion.pool.as_str() {
         "Shared" => "SharedPotionPool".to_string(),
         other => other.to_string(),
@@ -1239,6 +1608,7 @@ fn potion_cs(project: &Project, potion: &crate::model::PotionDef, warnings: &mut
         choice_ctx: "choiceContext",
         event_style: false,
         vars_allowed: true,
+        live_prefix: live_host.as_ref().map(|p| format!("{p}.onUse")),
     };
     let on_use = if potion.on_use.is_empty() {
         warnings.push(format!("药水 {class}: 没有任何使用效果"));
@@ -1289,7 +1659,7 @@ public class {class} : ModPotionTemplate
         rarity = potion.rarity,
         usage = potion.usage,
         target = potion.target,
-        vars = render_canonical_vars(&potion.vars, id)?,
+        vars = render_canonical_vars(&potion.vars, id, live_host.as_deref())?,
         extra = render_extra_code(&potion.extra_code),
     ))
 }
@@ -1394,13 +1764,13 @@ fn task_method(sig: &str, args: &str, body: &str, indent_comment: &str) -> Strin
     }
 }
 
-fn intent_expr(label: &str, intent: &IntentDef) -> Result<String> {
+fn intent_expr(label: &str, intent: &IntentDef, live_path: Option<&str>) -> Result<String> {
     Ok(match intent {
         IntentDef::Attack { amount } => {
             if *amount < 0 {
                 bail!("{label}: 攻击意图数值不能为负");
             }
-            format!("new SingleAttackIntent({amount})")
+            format!("new SingleAttackIntent({})", live_int(live_path, amount))
         }
         IntentDef::Defend => "new DefendIntent()".into(),
         IntentDef::Custom { code } => {
@@ -1413,10 +1783,11 @@ fn intent_expr(label: &str, intent: &IntentDef) -> Result<String> {
     })
 }
 
-fn monster_cs(project: &Project, m: &MonsterDef, warnings: &mut Vec<String>) -> Result<String> {
+fn monster_cs(project: &Project, m: &MonsterDef, live: bool, warnings: &mut Vec<String>) -> Result<String> {
     let id = &project.manifest.id;
     let ns = project.namespace();
     let class = &m.class_name;
+    let live_host: Option<String> = live.then(|| format!("monster.{class}"));
     let cid = ids::content_id(id, "MONSTER", class);
     let scene_res = format!("res://{id}/scenes/{}.tscn", scene_stem(class));
 
@@ -1434,8 +1805,13 @@ fn monster_cs(project: &Project, m: &MonsterDef, warnings: &mut Vec<String>) -> 
             let var = camel_of(&mv.name);
             let method = format!("{}Move", pascal_of(&mv.name));
             let mut intents = Vec::new();
-            for it in &mv.intents {
-                intents.push(format!("            {}", intent_expr(&label, it)?));
+            for (j, it) in mv.intents.iter().enumerate() {
+                let intent_path =
+                    live_host.as_ref().map(|p| format!("{p}.moves.{}.intent.{j}", mv.name));
+                intents.push(format!(
+                    "            {}",
+                    intent_expr(&label, it, intent_path.as_deref())?
+                ));
             }
             if intents.is_empty() {
                 warnings.push(format!("{label}: 没有意图，头顶不会显示图标"));
@@ -1466,6 +1842,7 @@ fn monster_cs(project: &Project, m: &MonsterDef, warnings: &mut Vec<String>) -> 
                 choice_ctx: "new ThrowingPlayerChoiceContext()",
                 event_style: false,
                 vars_allowed: false,
+                live_prefix: live_host.as_ref().map(|p| format!("{p}.moves.{}.effects", mv.name)),
             };
             let mut body = String::new();
             if !mv.banter.is_empty() {
@@ -1517,8 +1894,8 @@ namespace {ns}.Monsters;
 public class {class} : ModMonsterTemplate
 {{
     // 初始血量区间（游戏在区间内随机取值）
-    public override int MinInitialHp => {min};
-    public override int MaxInitialHp => {max};
+    public override int MinInitialHp => {min_expr};
+    public override int MaxInitialHp => {max_expr};
 
     // 怪物场景
     public override MonsterAssetProfile AssetProfile => new(
@@ -1530,8 +1907,8 @@ public class {class} : ModMonsterTemplate
         RitsuGodotNodeFactories.CreateFromScenePath<NCreatureVisuals>(AssetProfile.VisualsScenePath!);
 {machine}{methods}{extra}}}
 "#,
-        min = m.min_hp,
-        max = m.max_hp,
+        min_expr = live_int(live_host.as_ref().map(|p| format!("{p}.minHp")).as_deref(), m.min_hp),
+        max_expr = live_int(live_host.as_ref().map(|p| format!("{p}.maxHp")).as_deref(), m.max_hp),
         extra = render_extra_code(&m.extra_code),
     ))
 }
@@ -1644,10 +2021,11 @@ public class {class} : ModEncounterTemplate
     ))
 }
 
-fn event_cs(project: &Project, ev: &EventDef, warnings: &mut Vec<String>) -> Result<String> {
+fn event_cs(project: &Project, ev: &EventDef, live: bool, warnings: &mut Vec<String>) -> Result<String> {
     let id = &project.manifest.id;
     let ns = project.namespace();
     let class = &ev.class_name;
+    let live_host: Option<String> = live.then(|| format!("event.{class}"));
     let ext = asset_ext(&ev.image);
 
     let registrations = if ev.acts.is_empty() {
@@ -1668,7 +2046,7 @@ fn event_cs(project: &Project, ev: &EventDef, warnings: &mut Vec<String>) -> Res
         String::new()
     };
 
-    let vars_block = render_canonical_vars(&ev.vars, id)?;
+    let vars_block = render_canonical_vars(&ev.vars, id, live_host.as_deref())?;
 
     let condition_block = match &ev.condition {
         Some(cond) if !cond.trim().is_empty() => format!(
@@ -1748,7 +2126,7 @@ fn event_cs(project: &Project, ev: &EventDef, warnings: &mut Vec<String>) -> Res
         option_list("INITIAL", &initial.options)
     );
 
-    let ctx_for = |label: String| EffectCtx {
+    let ctx_for = |label: String, live_prefix: Option<String>| EffectCtx {
         label,
         attack_target: None,
         monster_attack: false,
@@ -1763,6 +2141,7 @@ fn event_cs(project: &Project, ev: &EventDef, warnings: &mut Vec<String>) -> Res
         choice_ctx: "new ThrowingPlayerChoiceContext()",
         event_style: true,
         vars_allowed: true,
+        live_prefix,
     };
 
     // 选项方法 + 非初始页的 ShowPage 方法
@@ -1782,7 +2161,12 @@ fn event_cs(project: &Project, ev: &EventDef, warnings: &mut Vec<String>) -> Res
         }
         for o in &p.options {
             let label = format!("事件 {class} 选项 {}.{}", p.key, o.key);
-            let ctx = ctx_for(label.clone());
+            let ctx = ctx_for(
+                label.clone(),
+                live_host
+                    .as_ref()
+                    .map(|pre| format!("{pre}.pages.{}.options.{}.effects", p.key, o.key)),
+            );
             let mut body = String::new();
             if !o.effects.is_empty() {
                 body.push_str(&render_effects(&ctx, &o.effects, warnings)?);
@@ -1924,10 +2308,11 @@ public class {class}PotionPool : TypeListPotionPoolModel
     ))
 }
 
-fn character_cs(project: &Project, ch: &CharacterDef, warnings: &mut Vec<String>) -> Result<String> {
+fn character_cs(project: &Project, ch: &CharacterDef, live: bool, warnings: &mut Vec<String>) -> Result<String> {
     let id = &project.manifest.id;
     let ns = project.namespace();
     let class = &ch.class_name;
+    let live_host: Option<String> = live.then(|| format!("character.{class}"));
     let color = color_expr(&ch.color);
     let stem = scene_stem(class);
 
@@ -1987,7 +2372,11 @@ fn character_cs(project: &Project, ch: &CharacterDef, warnings: &mut Vec<String>
         let entries = ch
             .starting_deck
             .iter()
-            .map(|sc| format!("        new(typeof({}), {})", sc.card, sc.count))
+            .enumerate()
+            .map(|(i, sc)| {
+                let count_path = live_host.as_ref().map(|p| format!("{p}.deck.{i}"));
+                format!("        new(typeof({}), {})", sc.card, live_int(count_path.as_deref(), sc.count))
+            })
             .collect::<Vec<_>>()
             .join(",\n");
         format!(
@@ -2071,8 +2460,8 @@ public class {class} : ModCharacterTemplate<{class}CardPool, {class}RelicPool, {
 {extra}}}
 "#,
         gender = ch.gender,
-        hp = ch.starting_hp,
-        gold = ch.starting_gold,
+        hp = live_int(live_host.as_ref().map(|p| format!("{p}.startingHp")).as_deref(), ch.starting_hp),
+        gold = live_int(live_host.as_ref().map(|p| format!("{p}.startingGold")).as_deref(), ch.starting_gold),
         base = ch.base,
         profile_args = profile_args.join(",\n"),
         extra = render_extra_code(&ch.extra_code),
@@ -2303,10 +2692,17 @@ color = Color({dr:.4}, {dg:.4}, {db:.4}, 1)
 
 /// 每种语言、每个类别一个 json：(语言, 文件名, 内容)。
 /// 键名规则：{内容ID}.title / .description，遗物另有 .flavor，能力另有 .smartDescription。
-fn localization_files(project: &Project) -> Result<Vec<(String, String, String)>> {
+/// 本地化词条表：(语言, 文件名) → 键值表。
+/// 语言码统一成游戏三字码（"en" → "eng"，见 live::normalize_lang）——
+/// 游戏只按自己的语言码目录加载 mod 本地化（sts2.dll 反编译确认）。
+/// 供生成 pck 内 json 与 live.json 两处共用。
+pub(crate) fn localization_tables(
+    project: &Project,
+) -> Result<BTreeMap<(String, &'static str), serde_json::Map<String, serde_json::Value>>> {
     // (lang, 文件名) → 键值表
-    let mut buckets: BTreeMap<(String, &'static str), serde_json::Map<String, serde_json::Value>> =
+    let mut raw: BTreeMap<(String, &'static str), serde_json::Map<String, serde_json::Value>> =
         BTreeMap::new();
+    let buckets = &mut raw;
     let mod_id = &project.manifest.id;
 
     for card in &project.cards {
@@ -2523,14 +2919,14 @@ fn localization_files(project: &Project) -> Result<Vec<(String, String, String)>
         }
     }
 
-    buckets
-        .into_iter()
-        .map(|((lang, file), map)| {
-            Ok((
-                lang,
-                file.to_string(),
-                serde_json::to_string_pretty(&serde_json::Value::Object(map))? + "\n",
-            ))
-        })
-        .collect()
+    // 语言码归一（"en" → "eng"）；同一目标语言的词条合并
+    let mut out: BTreeMap<(String, &'static str), serde_json::Map<String, serde_json::Value>> =
+        BTreeMap::new();
+    for ((lang, file), map) in raw {
+        let merged = out.entry((crate::live::normalize_lang(&lang), file)).or_default();
+        for (k, v) in map {
+            merged.insert(k, v);
+        }
+    }
+    Ok(out)
 }

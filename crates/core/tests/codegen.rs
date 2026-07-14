@@ -27,7 +27,8 @@ fn starter_project_generates_expected_tree() {
         "Scripts/Entry.cs",
         "Scripts/Cards/SampleStrike.cs",
         "Test/localization/zhs/cards.json",
-        "Test/localization/en/cards.json",
+        // 项目里写 "en"，生成时归一成游戏语言码 "eng"（否则游戏不加载英文文本）
+        "Test/localization/eng/cards.json",
     ] {
         assert!(paths.contains(&expected.to_string()), "缺少 {expected}，实际: {paths:?}");
     }

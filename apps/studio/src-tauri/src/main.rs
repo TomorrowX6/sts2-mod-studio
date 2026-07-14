@@ -64,6 +64,7 @@ async fn run_step(window: tauri::Window, dir: String, step: String) -> CmdResult
                 .and_then(|_| pipeline::build(&project_dir, &cfg, &mut log)),
             "pack" => pipeline::pack(&project_dir, &cfg, &mut log).map(|_| ()),
             "deploy" => pipeline::deploy(&project_dir, &cfg, &mut log),
+            "deployLive" => pipeline::deploy_live(&project_dir, &cfg, &mut log),
             "publish" => pipeline::publish(&project_dir, &cfg, false, &mut log),
             other => Err(anyhow::anyhow!("未知步骤: {other}")),
         };
@@ -71,6 +72,27 @@ async fn run_step(window: tauri::Window, dir: String, step: String) -> CmdResult
     })
     .await
     .map_err(err_str)?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LivePushDto {
+    needs_deploy: bool,
+    texts: usize,
+    nums: usize,
+}
+
+/// 实时推送：把内存中的项目直接写成 mods/<id>/live.json（毫秒级，不落盘项目文件）。
+#[tauri::command]
+fn push_live(dir: String, project: serde_json::Value) -> CmdResult<LivePushDto> {
+    let project: Project = serde_json::from_value(project).map_err(err_str)?;
+    let cfg = config::load_merged(Some(Path::new(&dir))).map_err(|e| format!("{e:#}"))?;
+    let push = pipeline::push_live(&project, &cfg).map_err(|e| format!("{e:#}"))?;
+    Ok(LivePushDto {
+        needs_deploy: push.needs_deploy,
+        texts: push.texts,
+        nums: push.nums,
+    })
 }
 
 #[derive(Serialize)]
@@ -175,7 +197,8 @@ fn main() {
             import_mod,
             read_image,
             get_config,
-            set_config
+            set_config,
+            push_live
         ])
         .run(tauri::generate_context!())
         .expect("启动 STS2 Mod Studio 失败");

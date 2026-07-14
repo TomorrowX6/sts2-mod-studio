@@ -1159,19 +1159,113 @@ function logLine(s) {
 }
 
 async function runStep(step) {
-  if (!state.dir) return;
+  if (!state.dir) return false;
   await saveProject();
   $("busy").classList.remove("hidden");
-  const buttons = ["btn-generate", "btn-build", "btn-pack", "btn-deploy", "btn-publish"];
+  const buttons = ["btn-generate", "btn-build", "btn-pack", "btn-deploy", "btn-live", "btn-publish"];
   for (const id of buttons) $(id).disabled = true;
+  let ok = false;
   try {
     await invoke("run_step", { dir: state.dir, step });
     logLine("=== " + step + " 完成 ===");
+    ok = true;
   } catch (e) {
     logLine("=== 失败: " + e + " ===");
   } finally {
     $("busy").classList.add("hidden");
     for (const id of buttons) $(id).disabled = false;
+  }
+  if (ok && live.active) {
+    if (step === "deployLive") {
+      // 实时部署刷新了结构基线
+      live.lastSent = JSON.stringify(state.project);
+      setLiveStatus("ok");
+    } else if (step === "deploy" || step === "publish") {
+      // 正式构建不含 Live 运行时,实时会话失效
+      stopLive("已执行正式构建,实时会话结束(需要时重新开启)");
+    }
+  }
+  return ok;
+}
+
+// ---------- 实时会话:编辑即推送进正在运行的游戏 ----------
+
+const live = { active: false, timer: 0, lastSent: "" };
+
+async function toggleLive() {
+  if (live.active) {
+    stopLive("实时会话已结束");
+    return;
+  }
+  if (!state.dir) return;
+  if (!confirm(
+    "开启实时会话?\n\n将先执行一次「实时部署」(生成+编译+导出,构建内置 Live 运行时)。" +
+    "完成后启动游戏;之后在编辑器里修改数值/文本会即时同步进游戏,无需重启。\n\n" +
+    "注意:增删内容、修改效果积木等结构性改动仍需重新部署。"
+  )) return;
+  const ok = await runStep("deployLive");
+  if (!ok) {
+    logLine("实时部署失败,实时会话未开启");
+    return;
+  }
+  live.active = true;
+  live.lastSent = JSON.stringify(state.project);
+  $("btn-live").classList.add("live-on");
+  $("btn-live").textContent = "⚡ 实时会话中";
+  setLiveStatus("ok");
+  logLine("实时会话已开启:保持游戏运行,数值/文本改动即时生效");
+}
+
+function stopLive(msg) {
+  live.active = false;
+  clearTimeout(live.timer);
+  $("btn-live").classList.remove("live-on");
+  $("btn-live").textContent = "⚡ 实时会话";
+  $("live-status").classList.add("hidden");
+  if (msg) logLine(msg);
+}
+
+/// 编辑防抖推送(全局 input/change/click 钩子触发;内容未变时跳过)
+function scheduleLivePush() {
+  if (!live.active) return;
+  clearTimeout(live.timer);
+  live.timer = setTimeout(pushLiveNow, 500);
+}
+
+async function pushLiveNow() {
+  if (!live.active || !state.dir || !state.project) return;
+  collectManifest();
+  const payload = JSON.stringify(state.project);
+  if (payload === live.lastSent) return;
+  try {
+    const r = await invoke("push_live", { dir: state.dir, project: state.project });
+    live.lastSent = payload;
+    setLiveStatus(r.needsDeploy ? "deploy" : "ok", r);
+  } catch (e) {
+    // 编辑中途的非法状态(类名为空等):等下次输入
+    setLiveStatus("invalid", e);
+  }
+}
+
+function setLiveStatus(kind, info) {
+  const el = $("live-status");
+  el.classList.remove("hidden", "ls-ok", "ls-deploy", "ls-invalid");
+  el.onclick = null;
+  el.title = "";
+  const hhmmss = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  if (kind === "ok") {
+    el.classList.add("ls-ok");
+    el.textContent = `● 已同步 ${hhmmss}`;
+    el.title = info ? `文本 ${info.texts} 项 / 数值 ${info.nums} 项(游戏内换个界面或重新悬浮即可看到)` : "";
+  } else if (kind === "deploy") {
+    el.classList.add("ls-deploy");
+    el.textContent = "⚠ 结构已变更 — 点击重新部署";
+    el.title = "增删内容/修改效果积木等改动需要重新构建并重启游戏;数值/文本改动仍已推送";
+    el.onclick = () => runStep("deployLive");
+  } else {
+    el.classList.add("ls-invalid");
+    el.textContent = "… 待校验通过";
+    el.title = String(info || "");
   }
 }
 
@@ -1221,6 +1315,11 @@ window.addEventListener("DOMContentLoaded", () => {
   $("btn-build").onclick = () => runStep("build");
   $("btn-pack").onclick = () => runStep("pack");
   $("btn-deploy").onclick = () => runStep("deploy");
+  $("btn-live").onclick = toggleLive;
+  // 实时会话:任何编辑(输入/选择/增删条目)都触发防抖推送
+  document.addEventListener("input", scheduleLivePush, true);
+  document.addEventListener("change", scheduleLivePush, true);
+  document.addEventListener("click", scheduleLivePush, true);
   $("btn-publish").onclick = () => {
     if (confirm("发布到创意工坊？将先执行一键部署，然后调用官方 ModUploader（需要 Steam 正在运行）。")) {
       runStep("publish");

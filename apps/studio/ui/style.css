@@ -546,3 +546,24 @@ button.cmd.accent:hover { background: var(--accent-hover); }
 
 /* 芯片内矢量图标 */
 .nav-chip svg { width: 13px; height: 13px; display: block; }
+
+/* 实时会话 */
+#btn-live.live-on {
+  background: #10893e;
+  color: #fff;
+  border-color: transparent;
+}
+.live-status {
+  font-size: 12.5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.live-status.ls-ok { color: #6ccb5f; background: rgba(16, 137, 62, 0.14); }
+.live-status.ls-deploy {
+  color: #ffb900;
+  background: rgba(255, 185, 0, 0.14);
+  cursor: pointer;
+}
+.live-status.ls-deploy:hover { background: rgba(255, 185, 0, 0.26); }
+.live-status.ls-invalid { color: var(--muted, #888); }

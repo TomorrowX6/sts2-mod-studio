@@ -41,7 +41,19 @@ enum Cmd {
     /// 导出 pck（需要已配置 Godot 路径；需先 generate）
     Pack,
     /// 一键：生成 + 编译 + 导出，直接部署进游戏 mods 目录
-    Deploy,
+    Deploy {
+        /// 实时模式：构建内置 Live 运行时并写入 live.json，
+        /// 之后配合 `sts2mod live` 或 Studio 实时会话，数值/文本改动无需重启游戏
+        #[arg(long)]
+        live: bool,
+    },
+    /// 实时会话：监视 project.stsmod.json，改动即推送进游戏（数值/文本即时生效）。
+    /// 首次运行（或结构已变化）会自动先做一次实时部署
+    Live {
+        /// 检测到结构性改动时自动重新完整部署（仍需重启游戏加载新 dll/pck）
+        #[arg(long)]
+        auto_deploy: bool,
+    },
     /// 发布到创意工坊：deploy + 组装 workshop/ 工作区 + 调用官方 ModUploader
     Publish {
         /// 跳过构建，直接用游戏 mods 目录里的现有产物
@@ -124,10 +136,15 @@ fn run(cli: Cli) -> Result<()> {
             pipeline::pack(&cli.project, &cfg, &mut log)?;
             Ok(())
         }
-        Cmd::Deploy => {
+        Cmd::Deploy { live } => {
             let cfg = config::load_merged(Some(&cli.project))?;
-            pipeline::deploy(&cli.project, &cfg, &mut log)
+            if live {
+                pipeline::deploy_live(&cli.project, &cfg, &mut log)
+            } else {
+                pipeline::deploy(&cli.project, &cfg, &mut log)
+            }
         }
+        Cmd::Live { auto_deploy } => run_live(&cli.project, auto_deploy, &mut log),
         Cmd::Publish { skip_deploy } => {
             let cfg = config::load_merged(Some(&cli.project))?;
             pipeline::publish(&cli.project, &cfg, skip_deploy, &mut log)
@@ -171,6 +188,84 @@ fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// 实时会话：先保证有匹配的实时部署，然后监视项目文件，改动即推送。
+fn run_live(project_dir: &std::path::Path, auto_deploy: bool, log: &mut dyn FnMut(&str)) -> Result<()> {
+    let cfg = config::load_merged(Some(project_dir))?;
+    let project_file = project_dir.join(sts2mod_core::PROJECT_FILE);
+    if !project_file.exists() {
+        bail!("{} 不存在（请在项目目录运行，或用 -C 指定）", project_file.display());
+    }
+
+    // 首次：推送一次；没有实时部署或结构已变化就先完整实时部署
+    let needs_initial_deploy = match model::Project::load(project_dir) {
+        Ok(p) => match pipeline::push_live(&p, &cfg) {
+            Ok(push) => push.needs_deploy,
+            Err(_) => true,
+        },
+        Err(e) => return Err(e),
+    };
+    if needs_initial_deploy {
+        println!("首次实时部署（构建内置 Live 运行时）…");
+        pipeline::deploy_live(project_dir, &cfg, log)?;
+        println!("请（重新）启动游戏。之后保持本命令运行，改动会自动推送。");
+    }
+
+    println!("实时会话中：监视 {}（Ctrl+C 退出）", project_file.display());
+    println!("  数值/文本改动 → 保存后即时生效（游戏内换个界面或重新悬浮即可看到）");
+    println!("  结构性改动   → {}", if auto_deploy {
+        "自动重新完整部署（完成后需重启游戏）"
+    } else {
+        "提示需要重新部署（可加 --auto-deploy 自动执行）"
+    });
+
+    let mtime_of = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    let mut last = mtime_of(&project_file);
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let now = mtime_of(&project_file);
+        if now == last {
+            continue;
+        }
+        last = now;
+        let project = match model::Project::load(project_dir) {
+            Ok(p) => p,
+            Err(e) => {
+                println!("⚠ 项目文件暂不可用（{e:#}），等待下次保存…");
+                continue;
+            }
+        };
+        match pipeline::push_live(&project, &cfg) {
+            Ok(push) if push.needs_deploy => {
+                if auto_deploy {
+                    println!("检测到结构性改动，自动重新部署…");
+                    if let Err(e) = pipeline::deploy_live(project_dir, &cfg, log) {
+                        println!("⚠ 重新部署失败: {e:#}");
+                    } else {
+                        println!("重新部署完成——请重启游戏加载新构建。");
+                    }
+                } else {
+                    println!("⚠ 检测到结构性改动（增删内容/效果/触发器等）：实时推送对其不生效，请重新执行 sts2mod deploy --live 并重启游戏");
+                }
+            }
+            Ok(push) => {
+                println!("已推送 {}（文本 {} 项 / 数值 {} 项）", chrono_now(), push.texts, push.nums);
+            }
+            Err(e) => println!("⚠ 推送失败: {e:#}"),
+        }
+    }
+}
+
+/// 本地时间 HH:MM:SS（不引额外依赖，够用即可）。
+fn chrono_now() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    // 简化处理：UTC+8（本工具主要面向中文社区；仅用于日志显示）
+    let secs = (now + 8 * 3600) % 86400;
+    format!("{:02}:{:02}:{:02}", secs / 3600, (secs % 3600) / 60, secs % 60)
 }
 
 fn set_key(cfg: &mut config::ToolConfig, key: &str, value: Option<String>) -> Result<()> {
