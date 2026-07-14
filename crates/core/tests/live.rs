@@ -12,7 +12,7 @@ use sts2mod_core::model::{self, Effect, Project};
 
 /// 覆盖全部宿主与积木字面量的"全家桶"项目。
 fn kitchen_sink() -> Project {
-    let raw = r#"{
+    let raw = r##"{
       "formatVersion": 1,
       "manifest": {
         "id": "LiveTest", "name": "实时测试", "author": "t", "description": "",
@@ -103,7 +103,7 @@ fn kitchen_sink() -> Project {
         "startingRelics": ["TurnEngine"],
         "text": { "zhs": { "title": "见习者", "description": "介绍。" } }
       }]
-    }"#;
+    }"##;
     serde_json::from_str(raw).unwrap()
 }
 
@@ -215,9 +215,12 @@ fn live_output_wires_runtime() {
 fn live_mode_rejects_class_named_live() {
     let mut project = kitchen_sink();
     project.cards[0].class_name = "Live".into();
+    project.characters[0].starting_deck[0].card = "Live".into();
     // 非 live 模式无所谓
     assert!(codegen::generate(&project).is_ok());
-    let err = codegen::generate_with(&project, &GenOptions { live: true }).unwrap_err();
+    let err = codegen::generate_with(&project, &GenOptions { live: true })
+        .err()
+        .expect("live mode should reject a class named Live");
     assert!(format!("{err:#}").contains("Live"));
 }
 
